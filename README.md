@@ -3,6 +3,7 @@
 A portable bridge that allows you to interact with long-running `opencode` sessions directly from Discord.
 
 ## Features
+
 - **Long-Running Sessions**: Persists context across multiple interactions.
 - **Headless Management**: Start (`/new`) and resume (`/resume`) sessions from Discord.
 - **Smart Filtering**: Filters out agent internal logs, showing only actionable output.
@@ -10,12 +11,14 @@ A portable bridge that allows you to interact with long-running `opencode` sessi
 - **Remote Control**: Send interrupt signals (`/interrupt`) to stop runaway processes.
 
 ## Prerequisites
+
 1. **Bun**: [Install Bun](https://bun.sh/)
 2. **OpenCode**: Ensure `opencode` is installed and available in your PATH.
 
 ## Setup Instructions
 
 ### 1. Discord Bot Configuration
+
 1. Go to the [Discord Developer Portal](https://discord.com/developers/applications).
 2. Create a **New Application**.
 3. Under the **Bot** tab:
@@ -27,7 +30,9 @@ A portable bridge that allows you to interact with long-running `opencode` sessi
    - Use the generated URL to invite the bot to your server.
 
 ### 2. Environment Setup
+
 Create a `.env` file in the project root:
+
 ```env
 DISCORD_TOKEN=your_bot_token
 DISCORD_CLIENT_ID=your_application_id
@@ -35,11 +40,13 @@ DISCORD_GUILD_ID=your_server_id
 ```
 
 ### 3. Installation
+
 ```bash
 bun install
 ```
 
 ## Usage
+
 1. **Start the Bridge**:
    ```bash
    bun index.ts

@@ -1,6 +1,14 @@
 import { EventEmitter } from 'events';
 import { spawn, type Subprocess } from 'bun';
-import { openSync, readSync, statSync, closeSync, writeFileSync, readFileSync, existsSync } from 'fs';
+import {
+  openSync,
+  readSync,
+  statSync,
+  closeSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+} from 'fs';
 import { type Agent } from './agent';
 
 export interface OpenCodeEvent {
@@ -41,11 +49,11 @@ export class OneShotOpenCodeProcess extends EventEmitter implements Agent {
 
   async start(prompt?: string) {
     const args = ['run', '--format', 'json'];
-    
+
     if (this.sessionId) {
       args.push('--session', this.sessionId);
     }
-    
+
     if (prompt) {
       args.push(prompt);
     }
@@ -74,19 +82,19 @@ export class OneShotOpenCodeProcess extends EventEmitter implements Agent {
 
       const code = await this.process.exited;
       console.log(`[OneShot] PID ${this.process.pid} exited with code ${code}`);
-      
+
       // Final tail to catch trailing data
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise((r) => setTimeout(r, 500));
       this.tailLog();
       this.stopTailing();
       this.stopHeartbeat();
-      
+
       this.emit('exit', code);
-    } catch (error) {
-      console.error('[OneShot] Failed to spawn:', error);
+    } catch (_error) {
+      console.error('[OneShot] Failed to spawn:', _error);
       this.stopHeartbeat();
-      this.emit('error', error);
-      throw error;
+      this.emit('error', _error);
+      throw _error;
     }
   }
 
@@ -95,7 +103,9 @@ export class OneShotOpenCodeProcess extends EventEmitter implements Agent {
     this.heartbeatTimer = setInterval(() => {
       const inactiveSeconds = Math.floor((Date.now() - this.lastActivity) / 1000);
       if (inactiveSeconds >= 5) {
-        console.log(`[OneShot Heartbeat] PID ${this.process?.pid} active, no activity for ${inactiveSeconds}s...`);
+        console.log(
+          `[OneShot Heartbeat] PID ${this.process?.pid} active, no activity for ${inactiveSeconds}s...`,
+        );
         this.emit('heartbeat', inactiveSeconds);
       }
     }, 5000);
@@ -142,7 +152,7 @@ export class OneShotOpenCodeProcess extends EventEmitter implements Agent {
           this.handleChunk(readBuffer.toString('utf-8'));
         }
       }
-      
+
       if (existsSync(this.stderrPath)) {
         const errStats = statSync(this.stderrPath);
         if (errStats.size > 0) {
@@ -153,36 +163,23 @@ export class OneShotOpenCodeProcess extends EventEmitter implements Agent {
           }
         }
       }
-    } catch (e) {}
+    } catch {
+      // Log file might not exist yet
+    }
   }
 
   private handleChunk(chunk: string) {
     this.buffer += chunk;
-    let startIndex = this.buffer.indexOf('{');
-    while (startIndex !== -1) {
-      let braceCount = 0;
-      let foundEnd = false;
-      let i = startIndex;
-      for (; i < this.buffer.length; i++) {
-        if (this.buffer[i] === '{') braceCount++;
-        else if (this.buffer[i] === '}') {
-          braceCount--;
-          if (braceCount === 0) {
-            foundEnd = true;
-            break;
-          }
-        }
-      }
-      if (foundEnd) {
-        const jsonStr = this.buffer.substring(startIndex, i + 1);
-        this.buffer = this.buffer.substring(i + 1);
-        try {
-          const event: OpenCodeEvent = JSON.parse(jsonStr);
-          this.processEvent(event);
-        } catch (e) {}
-        startIndex = this.buffer.indexOf('{');
-      } else {
-        break;
+    const lines = this.buffer.split('\n');
+    this.buffer = lines.pop() || ''; // Keep the last partial line
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const event: OpenCodeEvent = JSON.parse(line);
+        this.processEvent(event);
+      } catch {
+        // Ignore parse errors for non-JSON lines
       }
     }
   }
@@ -197,6 +194,8 @@ export class OneShotOpenCodeProcess extends EventEmitter implements Agent {
     } else if (event.type === 'step_finish') {
       this.emit('thinking', false);
       if (event.part?.reason === 'stop') this.emit('idle');
+    } else if (event.type === 'tool_use') {
+      // Thinking indicator is handled by step_start, so we don't need a separate message
     }
   }
 
@@ -210,9 +209,15 @@ export class OneShotOpenCodeProcess extends EventEmitter implements Agent {
     this.stopHeartbeat();
   }
 
-  getPid() { return this.process?.pid; }
-  getStdoutPath() { return this.stdoutPath; }
-  getStderrPath() { return this.stderrPath; }
+  getPid() {
+    return this.process?.pid;
+  }
+  getStdoutPath() {
+    return this.stdoutPath;
+  }
+  getStderrPath() {
+    return this.stderrPath;
+  }
 }
 
 /**
@@ -277,11 +282,11 @@ export class OpenCodeProcess extends EventEmitter implements Agent {
         this.emit('exit', code);
         this.emit('thinking', false);
       });
-    } catch (error) {
-      console.error('[OpenCode] Failed to spawn process:', error);
+    } catch (_error) {
+      console.error('[OpenCode] Failed to spawn process:', _error);
       this.stopHeartbeat();
-      this.emit('error', error);
-      throw error;
+      this.emit('error', _error);
+      throw _error;
     }
   }
 
@@ -335,7 +340,7 @@ export class OpenCodeProcess extends EventEmitter implements Agent {
           const bufferSize = stats.size - this.currentOffset;
           const readBuffer = Buffer.alloc(bufferSize);
           readSync(this.stdoutFd, readBuffer, 0, bufferSize, this.currentOffset);
-          
+
           this.currentOffset = stats.size;
           this.lastActivity = Date.now();
 
@@ -354,44 +359,27 @@ export class OpenCodeProcess extends EventEmitter implements Agent {
           }
         }
       }
-    } catch (error) {
+    } catch {
       // Ignore
     }
   }
 
   private handleChunk(chunk: string) {
     this.buffer += chunk;
-    let startIndex = this.buffer.indexOf('{');
-    while (startIndex !== -1) {
-      let braceCount = 0;
-      let foundEnd = false;
-      let i = startIndex;
+    const lines = this.buffer.split('\n');
+    this.buffer = lines.pop() || '';
 
-      for (; i < this.buffer.length; i++) {
-        if (this.buffer[i] === '{') braceCount++;
-        else if (this.buffer[i] === '}') {
-          braceCount--;
-          if (braceCount === 0) {
-            foundEnd = true;
-            break;
-          }
-        }
-      }
-
-      if (foundEnd) {
-        const jsonStr = this.buffer.substring(startIndex, i + 1);
-        this.buffer = this.buffer.substring(i + 1);
-        try {
-          const event: OpenCodeEvent = JSON.parse(jsonStr);
-          console.log(`[OpenCode Event] type=${event.type} sessionID=${event.sessionID || event.part?.sessionID || 'unknown'}`);
-          this.emit('event', event);
-          this.processEvent(event);
-        } catch (e) {
-          // Skip partials
-        }
-        startIndex = this.buffer.indexOf('{');
-      } else {
-        break;
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const event: OpenCodeEvent = JSON.parse(line);
+        console.log(
+          `[OpenCode Event] type=${event.type} sessionID=${event.sessionID || event.part?.sessionID || 'unknown'}`,
+        );
+        this.emit('event', event);
+        this.processEvent(event);
+      } catch {
+        // Skip partials or non-JSON
       }
     }
   }
@@ -407,14 +395,15 @@ export class OpenCodeProcess extends EventEmitter implements Agent {
           this.emit('idle');
         }
         break;
-      case 'text':
+      case 'text': {
         const text = event.part?.text || event.text;
         if (text) {
           this.emit('output', text);
         }
         break;
+      }
       case 'tool_use':
-        this.emit('output', '🛠️ **Using tool...**');
+        // Thinking indicator handled by step_start
         break;
     }
   }

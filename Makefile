@@ -1,7 +1,7 @@
-.PHONY: run test lint format clean
+.PHONY: run test lint format clean clean-bot ci
 
 # Binary path for bun
-BUN := $(HOME)/.bun/bin/bun
+BUN := $(shell which bun 2>/dev/null || echo $(HOME)/.bun/bin/bun)
 
 run:
 	$(BUN) index.ts
@@ -16,8 +16,11 @@ format:
 	$(BUN) run format
 
 clean:
-	rm -f sessions.json sessions.test.json
+	rm -f sessions.json sessions.test.json *.test.json logs/*.stdout logs/*.stderr logs/*.out
 
 # Surgically kill only bot-managed sessions
 clean-bot:
-	pgrep -f "discobot_" | xargs kill -9 || true
+	pgrep -f "ses_" | xargs kill -9 || true
+
+# Single source of truth for CI readiness
+ci: format lint test

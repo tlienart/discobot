@@ -9,11 +9,13 @@ import {
   ChannelType,
   type Message,
   MessageFlags,
+  type Interaction,
+  IntentsBitField,
 } from 'discord.js';
 import { readFileSync, existsSync } from 'fs';
 import dotenv from 'dotenv';
 import { SessionManager } from './sessions';
-import { OpenCodeProcess, OneShotOpenCodeProcess, type OpenCodeEvent } from './opencode';
+import { OpenCodeProcess, OneShotOpenCodeProcess } from './opencode';
 import { type Agent } from './agent';
 
 dotenv.config();
@@ -27,9 +29,12 @@ export class DiscordClient {
 
   private typingIntervals: Map<string, Timer> = new Map();
   private heartbeatTimers: Map<string, Timer> = new Map();
-  
+
   // Track if a channel is currently busy with a process
   private channelBusy: Set<string> = new Set();
+
+  private outputBuffers: Map<string, string> = new Map();
+  private summarizationInProgress: Set<string> = new Set();
 
   constructor() {
     this.token = process.env.DISCORD_TOKEN || '';
@@ -57,7 +62,7 @@ export class DiscordClient {
       console.log(`Ready! Logged in as ${readyClient.user.tag}`);
     });
 
-    this.client.on(Events.InteractionCreate, async (interaction) => {
+    this.client.on(Events.InteractionCreate, async (interaction: Interaction) => {
       if (!interaction.isChatInputCommand()) return;
 
       const { commandName, options, channelId, guild } = interaction;
@@ -73,12 +78,12 @@ export class DiscordClient {
             this.sessionManager.setCategoryId(category.id);
             await interaction.reply({
               content: `Successfully set session category to: **${category.name}** (${category.id})`,
-              flags: [MessageFlags.Ephemeral]
+              flags: [MessageFlags.Ephemeral],
             });
           } else {
             await interaction.reply({
               content: 'Please provide a valid category.',
-              flags: [MessageFlags.Ephemeral]
+              flags: [MessageFlags.Ephemeral],
             });
           }
           break;
@@ -91,8 +96,8 @@ export class DiscordClient {
 
           try {
             let parentId = this.sessionManager.getCategoryId();
-            if (!parentId) {
-              const currentChannel = await guild?.channels.fetch(channelId);
+            if (!parentId && guild && typeof guild.channels.fetch === 'function') {
+              const currentChannel = await guild.channels.fetch(channelId);
               if (currentChannel && 'parentId' in currentChannel && currentChannel.parentId) {
                 parentId = currentChannel.parentId;
               }
@@ -105,18 +110,19 @@ export class DiscordClient {
             });
 
             if (channel) {
-              const session = mode === 'oneshot' 
-                ? this.sessionManager.prepareOneShotSession(channel.id)
-                : this.sessionManager.prepareSession(channel.id);
+              const session =
+                mode === 'oneshot'
+                  ? this.sessionManager.prepareOneShotSession(channel.id)
+                  : this.sessionManager.prepareSession(channel.id);
 
               this.attachSessionListeners(session, channel as TextChannel);
-              
+
               await interaction.editReply(`Created new ${mode} session in ${channel}`);
-              
+
               // Mirror user prompt
               await (channel as TextChannel).send(`**User:** ${prompt}`);
               await (channel as TextChannel).send(`🚀 **Agent (${mode}) is starting up...**`);
-              
+
               this.channelBusy.add(channel.id);
               session.start(prompt).finally(() => {
                 this.channelBusy.delete(channel.id);
@@ -135,8 +141,8 @@ export class DiscordClient {
 
           try {
             let parentId = this.sessionManager.getCategoryId();
-            if (!parentId) {
-              const currentChannel = await guild?.channels.fetch(channelId);
+            if (!parentId && guild && typeof guild.channels.fetch === 'function') {
+              const currentChannel = await guild.channels.fetch(channelId);
               if (currentChannel && 'parentId' in currentChannel && currentChannel.parentId) {
                 parentId = currentChannel.parentId;
               }
@@ -151,11 +157,11 @@ export class DiscordClient {
             if (channel) {
               const session = this.sessionManager.prepareMockSession(channel.id);
               this.attachSessionListeners(session, channel as TextChannel);
-              
+
               await interaction.editReply(`Created mock test session in ${channel}`);
               await (channel as TextChannel).send(`**User:** ${message}`);
               await (channel as TextChannel).send('🧪 **Mock bridge starting...**');
-              
+
               this.channelBusy.add(channel.id);
               session.start(message).finally(() => {
                 this.channelBusy.delete(channel.id);
@@ -188,7 +194,7 @@ export class DiscordClient {
             try {
               const stdoutPath = session.getStdoutPath();
               const stderrPath = session.getStderrPath();
-              
+
               let content = '';
               if (existsSync(stdoutPath)) {
                 const stdout = readFileSync(stdoutPath, 'utf-8');
@@ -201,12 +207,13 @@ export class DiscordClient {
 
               await interaction.reply({
                 content: content || 'Log files are empty.',
-                flags: [MessageFlags.Ephemeral]
+                flags: [MessageFlags.Ephemeral],
               });
-            } catch (error: any) {
+            } catch (err: unknown) {
+              const e = err as Error;
               await interaction.reply({
-                content: `Failed to read logs: ${error.message}`,
-                flags: [MessageFlags.Ephemeral]
+                content: `Failed to read logs: ${e.message}`,
+                flags: [MessageFlags.Ephemeral],
               });
             }
           } else {
@@ -222,18 +229,21 @@ export class DiscordClient {
           this.channelBusy.delete(channelId);
           await interaction.reply({
             content: 'Successfully reset busy lock for this channel.',
-            flags: [MessageFlags.Ephemeral]
+            flags: [MessageFlags.Ephemeral],
           });
           break;
         }
 
         case 'debug': {
-          const intents = this.client.options.intents as any;
-          const msgContentIntent = intents.has(GatewayIntentBits.MessageContent);
+          const intents = this.client.options.intents;
+          const msgContentIntent =
+            intents instanceof IntentsBitField
+              ? intents.has(GatewayIntentBits.MessageContent)
+              : false;
           const categoryId = this.sessionManager.getCategoryId();
           await interaction.reply({
             content: `**Debug Info:**\n- Message Content Intent: ${msgContentIntent ? '✅ Enabled' : '❌ Disabled'}\n- Active Sessions: ${this.sessionManager.getChannelMapping().size}\n- Category Set: ${categoryId ? '✅' : '❌'}`,
-            flags: [MessageFlags.Ephemeral]
+            flags: [MessageFlags.Ephemeral],
           });
           break;
         }
@@ -249,17 +259,21 @@ export class DiscordClient {
       if (session) {
         if (this.channelBusy.has(message.channelId)) {
           if (typeof message.reply === 'function') {
-            await message.reply('⚠️ **Agent is currently busy. Please wait for the current task to finish.**');
+            await message.reply(
+              '⚠️ **Agent is currently busy. Please wait for the current task to finish.**',
+            );
           }
           return;
         }
 
-        console.log(`[Discord] Message in session (${mode}) channel ${message.channelId}: ${message.content}`);
+        console.log(
+          `[Discord] Message in session (${mode}) channel ${message.channelId}: ${message.content}`,
+        );
         try {
           if (mode === 'oneshot') {
             await message.react('📥');
             const stableSessionId = this.sessionManager.getChannelMapping().get(message.channelId);
-            
+
             // Mirror prompt
             if (message.channel instanceof TextChannel) {
               await message.channel.send(`**User:** ${message.content}`);
@@ -267,7 +281,7 @@ export class DiscordClient {
 
             const freshSession = new OneShotOpenCodeProcess(stableSessionId);
             this.attachSessionListeners(freshSession, message.channel as TextChannel);
-            
+
             this.channelBusy.add(message.channelId);
             freshSession.start(message.content).finally(() => {
               this.channelBusy.delete(message.channelId);
@@ -285,16 +299,72 @@ export class DiscordClient {
     });
   }
 
+  private async sendLongMessage(channel: TextChannel, content: string) {
+    if (content.length <= 2000) {
+      await channel.send(content).catch(console.error);
+      return;
+    }
+
+    const chunks = [];
+    let current = content;
+    while (current.length > 0) {
+      chunks.push(current.slice(0, 1900));
+      current = current.slice(1900);
+    }
+
+    for (const chunk of chunks) {
+      await channel.send(chunk).catch(console.error);
+    }
+  }
+
+  private async handleTurnEnd(channel: TextChannel, session: Agent) {
+    const buffer = this.outputBuffers.get(channel.id) || '';
+    if (!buffer) return;
+
+    this.outputBuffers.set(channel.id, ''); // Clear for next turn
+
+    if (buffer.length > 2000 && !this.summarizationInProgress.has(channel.id)) {
+      await channel.send('⚠️ **Response is too long (>2000 chars). Requesting a summary...**');
+      this.summarizationInProgress.add(channel.id);
+
+      const summaryPrompt =
+        'The previous answer was too long for the user interface. Please provide a concise summary of that answer (keeping the most important parts) and ensure the summary is under 2000 characters.';
+
+      try {
+        const mode = this.sessionManager.getSessionType(channel.id);
+        const stableSid = this.sessionManager.getChannelMapping().get(channel.id);
+
+        if (mode === 'oneshot') {
+          const freshSession = new OneShotOpenCodeProcess(stableSid);
+          this.attachSessionListeners(freshSession, channel);
+          this.channelBusy.add(channel.id);
+          await freshSession.start(summaryPrompt);
+          this.channelBusy.delete(channel.id);
+        } else {
+          session.sendInput(summaryPrompt);
+        }
+      } catch (err) {
+        console.error('[Discord] Summarization failed:', err);
+        this.summarizationInProgress.delete(channel.id);
+        await this.sendLongMessage(channel, buffer); // Fallback to chunked
+      }
+    } else {
+      this.summarizationInProgress.delete(channel.id);
+      await this.sendLongMessage(channel, buffer);
+    }
+  }
+
   private attachSessionListeners(session: Agent, channel: TextChannel) {
     let firstOutput = true;
+    this.outputBuffers.set(channel.id, '');
 
     session.on('output', (text: string) => {
       if (firstOutput) {
         console.log(`[Discord] First output received for channel ${channel.id}`);
         firstOutput = false;
       }
-      console.log(`[Discord] Sending output to channel ${channel.id}`);
-      channel.send(text).catch(console.error);
+      const currentBuffer = this.outputBuffers.get(channel.id) || '';
+      this.outputBuffers.set(channel.id, currentBuffer + text);
     });
 
     session.on('thinking', (isThinking: boolean) => {
@@ -331,12 +401,15 @@ export class DiscordClient {
     if (session instanceof OpenCodeProcess) {
       session.on('heartbeat', (seconds: number) => {
         if (seconds === 10) {
-          channel.send('⚠️ **Agent is taking longer than expected to respond...**').catch(console.error);
+          channel
+            .send('⚠️ **Agent is taking longer than expected to respond...**')
+            .catch(console.error);
         }
       });
     }
 
-    session.on('idle', () => {
+    session.on('idle', async () => {
+      await this.handleTurnEnd(channel, session);
       channel.send('✅ **Ready for input**').catch(console.error);
     });
 
@@ -347,24 +420,25 @@ export class DiscordClient {
         .catch(console.error);
     });
 
-    session.on('stderr', (data: string) => {
-      if (data.trim()) {
-        // channel.send(`⚠️ **Stderr:**\n\`\`\`\n${data.substring(0, 1500)}\n\`\`\``).catch(console.error);
-      }
+    session.on('stderr', (_data: string) => {
+      // Stderr logging disabled to reduce noise
     });
 
     session.on('exit', async (code: number) => {
+      await this.handleTurnEnd(channel, session);
       if (code !== 0 && code !== null) {
         channel.send(`⚠️ **Process exited with code ${code}**`).catch(console.error);
-        
+
         // Peek at stderr file
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise((r) => setTimeout(r, 1000));
         if (typeof session.getStderrPath === 'function') {
           const stderrPath = session.getStderrPath();
           if (existsSync(stderrPath)) {
             const content = readFileSync(stderrPath, 'utf-8');
             if (content.trim()) {
-              channel.send(`📋 **Final Stderr Peek:**\n\`\`\`\n${content.slice(-1000)}\n\`\`\``).catch(console.error);
+              channel
+                .send(`📋 **Final Stderr Peek:**\n\`\`\`\n${content.slice(-1000)}\n\`\`\``)
+                .catch(console.error);
             }
           }
         }
@@ -392,12 +466,13 @@ export class DiscordClient {
           option.setName('prompt').setDescription('Initial prompt for the agent'),
         )
         .addStringOption((option) =>
-          option.setName('mode')
+          option
+            .setName('mode')
             .setDescription('Session mode (default: One-Shot)')
             .addChoices(
               { name: 'One-Shot (Stateless)', value: 'oneshot' },
-              { name: 'Persistent (Stateful)', value: 'persistent' }
-            )
+              { name: 'Persistent (Stateful)', value: 'persistent' },
+            ),
         ),
       new SlashCommandBuilder()
         .setName('test-bridge')
@@ -469,24 +544,25 @@ export class DiscordClient {
         const channel = await this.client.channels.fetch(channelId);
         if (channel && channel.type === ChannelType.GuildText) {
           const type = this.sessionManager.getSessionType(channelId);
-          
+
           if (type === 'oneshot') {
-             // Just prepare metadata
-             this.sessionManager.prepareOneShotSession(channelId, sessionId);
-             continue;
+            // Just prepare metadata
+            this.sessionManager.prepareOneShotSession(channelId, sessionId);
+            continue;
           }
 
           console.log(`Recovering persistent session ${sessionId} in channel ${channelId}`);
-          const session = type === 'mock'
-             ? this.sessionManager.prepareMockSession(channelId, sessionId)
-             : this.sessionManager.prepareSession(channelId, sessionId);
+          const session =
+            type === 'mock'
+              ? this.sessionManager.prepareMockSession(channelId, sessionId)
+              : this.sessionManager.prepareSession(channelId, sessionId);
 
           this.attachSessionListeners(session, channel as TextChannel);
-          
+
           await (channel as TextChannel).send(
             '🔄 **Bridge restarted. Re-attaching to session...**',
           );
-          
+
           this.channelBusy.add(channel.id);
           session.start().finally(() => {
             this.channelBusy.delete(channel.id);
@@ -494,7 +570,7 @@ export class DiscordClient {
         } else {
           this.sessionManager.removeSession(channelId);
         }
-      } catch (error: any) {
+      } catch {
         this.sessionManager.removeSession(channelId);
       }
     }
