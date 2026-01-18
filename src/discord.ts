@@ -9,11 +9,13 @@ import {
   ChannelType,
   type Message,
   MessageFlags,
+  type Interaction,
+  IntentsBitField,
 } from 'discord.js';
 import { readFileSync, existsSync } from 'fs';
 import dotenv from 'dotenv';
 import { SessionManager } from './sessions';
-import { OpenCodeProcess, OneShotOpenCodeProcess, type OpenCodeEvent } from './opencode';
+import { OpenCodeProcess, OneShotOpenCodeProcess } from './opencode';
 import { type Agent } from './agent';
 
 dotenv.config();
@@ -57,7 +59,7 @@ export class DiscordClient {
       console.log(`Ready! Logged in as ${readyClient.user.tag}`);
     });
 
-    this.client.on(Events.InteractionCreate, async (interaction) => {
+    this.client.on(Events.InteractionCreate, async (interaction: Interaction) => {
       if (!interaction.isChatInputCommand()) return;
 
       const { commandName, options, channelId, guild } = interaction;
@@ -203,9 +205,10 @@ export class DiscordClient {
                 content: content || 'Log files are empty.',
                 flags: [MessageFlags.Ephemeral]
               });
-            } catch (error: any) {
+            } catch (_error: unknown) {
+              const err = _error as Error;
               await interaction.reply({
-                content: `Failed to read logs: ${error.message}`,
+                content: `Failed to read logs: ${err.message}`,
                 flags: [MessageFlags.Ephemeral]
               });
             }
@@ -228,8 +231,10 @@ export class DiscordClient {
         }
 
         case 'debug': {
-          const intents = this.client.options.intents as any;
-          const msgContentIntent = intents.has(GatewayIntentBits.MessageContent);
+          const intents = this.client.options.intents;
+          const msgContentIntent = (intents instanceof IntentsBitField) 
+            ? intents.has(GatewayIntentBits.MessageContent)
+            : false;
           const categoryId = this.sessionManager.getCategoryId();
           await interaction.reply({
             content: `**Debug Info:**\n- Message Content Intent: ${msgContentIntent ? '✅ Enabled' : '❌ Disabled'}\n- Active Sessions: ${this.sessionManager.getChannelMapping().size}\n- Category Set: ${categoryId ? '✅' : '❌'}`,
@@ -237,6 +242,7 @@ export class DiscordClient {
           });
           break;
         }
+
       }
     });
 
@@ -347,10 +353,8 @@ export class DiscordClient {
         .catch(console.error);
     });
 
-    session.on('stderr', (data: string) => {
-      if (data.trim()) {
-        // channel.send(`⚠️ **Stderr:**\n\`\`\`\n${data.substring(0, 1500)}\n\`\`\``).catch(console.error);
-      }
+    session.on('stderr', (_data: string) => {
+      // Stderr logging disabled to reduce noise
     });
 
     session.on('exit', async (code: number) => {
@@ -494,7 +498,7 @@ export class DiscordClient {
         } else {
           this.sessionManager.removeSession(channelId);
         }
-      } catch (error: any) {
+      } catch {
         this.sessionManager.removeSession(channelId);
       }
     }

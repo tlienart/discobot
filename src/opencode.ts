@@ -153,7 +153,9 @@ export class OneShotOpenCodeProcess extends EventEmitter implements Agent {
           }
         }
       }
-    } catch (e) {}
+    } catch {
+      // Log file might not exist yet
+    }
   }
 
   private handleChunk(chunk: string) {
@@ -179,7 +181,9 @@ export class OneShotOpenCodeProcess extends EventEmitter implements Agent {
         try {
           const event: OpenCodeEvent = JSON.parse(jsonStr);
           this.processEvent(event);
-        } catch (e) {}
+        } catch {
+          // Ignore parse errors
+        }
         startIndex = this.buffer.indexOf('{');
       } else {
         break;
@@ -277,11 +281,11 @@ export class OpenCodeProcess extends EventEmitter implements Agent {
         this.emit('exit', code);
         this.emit('thinking', false);
       });
-    } catch (error) {
-      console.error('[OpenCode] Failed to spawn process:', error);
+    } catch (_error) {
+      console.error('[OpenCode] Failed to spawn process:', _error);
       this.stopHeartbeat();
-      this.emit('error', error);
-      throw error;
+      this.emit('error', _error);
+      throw _error;
     }
   }
 
@@ -333,7 +337,7 @@ export class OpenCodeProcess extends EventEmitter implements Agent {
           }
 
           const bufferSize = stats.size - this.currentOffset;
-          const readBuffer = Buffer.alloc(bufferSize);
+          const readBuffer = Buffer.allocUnsafe(bufferSize);
           readSync(this.stdoutFd, readBuffer, 0, bufferSize, this.currentOffset);
           
           this.currentOffset = stats.size;
@@ -354,7 +358,7 @@ export class OpenCodeProcess extends EventEmitter implements Agent {
           }
         }
       }
-    } catch (error) {
+    } catch (_error) {
       // Ignore
     }
   }
@@ -386,7 +390,7 @@ export class OpenCodeProcess extends EventEmitter implements Agent {
           console.log(`[OpenCode Event] type=${event.type} sessionID=${event.sessionID || event.part?.sessionID || 'unknown'}`);
           this.emit('event', event);
           this.processEvent(event);
-        } catch (e) {
+        } catch (_e) {
           // Skip partials
         }
         startIndex = this.buffer.indexOf('{');
@@ -407,12 +411,13 @@ export class OpenCodeProcess extends EventEmitter implements Agent {
           this.emit('idle');
         }
         break;
-      case 'text':
+      case 'text': {
         const text = event.part?.text || event.text;
         if (text) {
           this.emit('output', text);
         }
         break;
+      }
       case 'tool_use':
         this.emit('output', '🛠️ **Using tool...**');
         break;

@@ -24,7 +24,7 @@ async function runOpencode(sessionId: string, prompt: string) {
             fullOutput += content;
           }
         }
-      } catch (e) {
+      } catch (_parseError) {
         // Skip non-json noise
       }
     }
@@ -58,7 +58,9 @@ async function testContext() {
           sessionId = sid;
           console.log(`Captured Session ID: ${sessionId}`);
         }
-      } catch (e) {}
+      } catch (_jsonError) {
+        // Ignore
+      }
     }
   }
   await proc1.exited;

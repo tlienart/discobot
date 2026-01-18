@@ -3,7 +3,7 @@ import { DiscordClient } from './discord';
 import { ChannelType } from 'discord.js';
 import { SessionManager } from './sessions';
 import { OpenCodeProcess } from './opencode';
-import { unlinkSync, existsSync } from 'fs';
+import { unlinkSync, existsSync, writeFileSync } from 'fs';
 
 const TEST_DB = 'sessions.test.json';
 
@@ -20,13 +20,13 @@ describe('DiscordClient', () => {
   });
 
   test('should skip recovery for invalid Snowflake IDs', async () => {
-    const dbData = { 'invalid-id': 'session-123' };
-    require('fs').writeFileSync(TEST_DB, JSON.stringify(dbData));
+    const dbData = { channels: { 'invalid-id': 'session-123' }, types: { 'invalid-id': 'oneshot' } };
+    writeFileSync(TEST_DB, JSON.stringify(dbData));
 
     const client = new DiscordClient();
     const fetchSpy = spyOn(client.getClient().channels, 'fetch');
 
-    // @ts-ignore - access private recovery method
+    // @ts-expect-error - access private recovery method
     await client.recoverSessions();
 
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -62,6 +62,7 @@ describe('DiscordClient', () => {
       reply: mock(async () => {}),
     };
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     client.getClient().emit('interactionCreate', mockInteraction as unknown as any);
     await new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -70,7 +71,7 @@ describe('DiscordClient', () => {
   });
 
   test('should handle /new command', async () => {
-    const prepareSessionSpy = spyOn(SessionManager.prototype, 'prepareSession').mockReturnValue(new OpenCodeProcess('test-session'));
+    const prepareSessionSpy = spyOn(SessionManager.prototype, 'prepareOneShotSession').mockReturnValue(new OpenCodeProcess('test-session'));
     const startSpy = spyOn(OpenCodeProcess.prototype, 'start').mockImplementation(async () => {});
 
     const client = new DiscordClient();
@@ -78,14 +79,14 @@ describe('DiscordClient', () => {
       id: 'channel-123',
       name: 'opencode-1234',
       type: ChannelType.GuildText,
-      send: mock(async () => {}),
+      send: mock(async () => ({})),
     };
 
     const mockInteraction = {
       isChatInputCommand: () => true,
       commandName: 'new',
       options: {
-        getString: () => 'hello',
+        getString: (name: string) => name === 'prompt' ? 'hello' : 'oneshot',
       },
       guild: {
         channels: {
@@ -96,6 +97,7 @@ describe('DiscordClient', () => {
       editReply: mock(async () => {}),
     };
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     client.getClient().emit('interactionCreate', mockInteraction as any);
     await new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -115,7 +117,7 @@ describe('DiscordClient', () => {
       () =>
         ({
           sendInput: sendInputSpy,
-        }) as any,
+        } as unknown as OpenCodeProcess),
     );
 
     const client = new DiscordClient();
@@ -126,6 +128,7 @@ describe('DiscordClient', () => {
       react: mock(async () => {}),
     };
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     client.getClient().emit('messageCreate', mockMessage as any);
 
     expect(getSessionSpy).toHaveBeenCalledWith('channel-123');
