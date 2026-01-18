@@ -22,18 +22,24 @@ export class SessionManager {
   }
 
   private savePersistence() {
-    const data: SessionData = {
-      channels: Object.fromEntries(this.channelToSession.entries()),
-      categoryId: this.categoryId,
-      types: Object.fromEntries(this.channelToType.entries()),
-    };
-    writeFileSync(this.PERSISTENCE_FILE, JSON.stringify(data, null, 2));
+    try {
+      const data: SessionData = {
+        channels: Object.fromEntries(this.channelToSession.entries()),
+        categoryId: this.categoryId,
+        types: Object.fromEntries(this.channelToType.entries()),
+      };
+      writeFileSync(this.PERSISTENCE_FILE, JSON.stringify(data, null, 2));
+    } catch (error) {
+      console.error('[Manager] Failed to save persistence:', error);
+    }
   }
 
   private loadPersistence() {
     if (existsSync(this.PERSISTENCE_FILE)) {
       try {
-        const data = JSON.parse(readFileSync(this.PERSISTENCE_FILE, 'utf-8'));
+        const content = readFileSync(this.PERSISTENCE_FILE, 'utf-8');
+        if (!content.trim()) return;
+        const data = JSON.parse(content);
         if (data.channels) {
           this.channelToSession = new Map(Object.entries(data.channels));
         }
@@ -42,7 +48,7 @@ export class SessionManager {
         }
         this.categoryId = data.categoryId || null;
       } catch (error) {
-        console.error('Failed to load persistence:', error);
+        console.error('[Manager] Failed to load persistence:', error);
       }
     }
   }
@@ -57,12 +63,12 @@ export class SessionManager {
   }
 
   generateBotSessionId(): string {
-    // Strictly must start with 'ses' for OpenCode Zod validation
     return `ses_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   }
 
   private ensurePrefix(sid: string): string {
-    if (sid.startsWith('ses')) return sid;
+    if (sid.startsWith('ses_')) return sid;
+    if (sid.startsWith('ses')) return `ses_${sid.substring(3)}`;
     return `ses_${sid}`;
   }
 
@@ -82,37 +88,38 @@ export class SessionManager {
 
   prepareSession(channelId: string, sessionId?: string): Agent {
     const sid = sessionId ? this.ensurePrefix(sessionId) : this.generateBotSessionId();
-    
     const session = new OpenCodeProcess(sid);
+    
     this.sessions.set(channelId, session);
     this.channelToSession.set(channelId, sid);
     this.channelToType.set(channelId, 'persistent');
-    this.savePersistence();
     
+    this.savePersistence();
     this.attachIdListener(channelId, session);
     return session;
   }
 
   prepareOneShotSession(channelId: string, sessionId?: string): Agent {
     const sid = sessionId ? this.ensurePrefix(sessionId) : this.generateBotSessionId();
-
     const session = new OneShotOpenCodeProcess(sid);
+    
     this.sessions.set(channelId, session);
     this.channelToSession.set(channelId, sid);
     this.channelToType.set(channelId, 'oneshot');
+    
     this.savePersistence();
-
     this.attachIdListener(channelId, session);
     return session;
   }
 
   prepareMockSession(channelId: string, sessionId?: string): Agent {
     const sid = sessionId ? this.ensurePrefix(sessionId) : this.generateBotSessionId();
-
     const session = new MockProcess(sid);
+    
     this.sessions.set(channelId, session);
     this.channelToSession.set(channelId, sid);
     this.channelToType.set(channelId, 'mock');
+    
     this.savePersistence();
     return session;
   }
@@ -135,11 +142,9 @@ export class SessionManager {
       session.stop();
       this.sessions.delete(channelId);
     }
-    if (this.channelToSession.has(channelId)) {
-      this.channelToSession.delete(channelId);
-      this.channelToType.delete(channelId);
-      this.savePersistence();
-    }
+    this.channelToSession.delete(channelId);
+    this.channelToType.delete(channelId);
+    this.savePersistence();
   }
 
   async stopAll() {

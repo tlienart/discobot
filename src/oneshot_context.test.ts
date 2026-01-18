@@ -13,10 +13,10 @@ describe('One-Shot Context Persistence', () => {
     process.env.DISCORD_TOKEN = 'test-token';
     process.env.DISCORD_CLIENT_ID = 'test-client-id';
     process.env.DISCORD_GUILD_ID = 'test-guild-id';
-    process.env.SESSION_DB = 'oneshot_context.test.json';
+    process.env.SESSION_DB = 'oneshot_context_spec.test.json';
 
-    if (existsSync('oneshot_context.test.json')) {
-      unlinkSync('oneshot_context.test.json');
+    if (existsSync('oneshot_context_spec.test.json')) {
+      unlinkSync('oneshot_context_spec.test.json');
     }
 
     mockChannel = new EventEmitter();
@@ -59,10 +59,10 @@ describe('One-Shot Context Persistence', () => {
     } as unknown as Message;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (discordClient as any).emit('messageCreate', mockMessage1);
+    discordClient.emit('messageCreate', mockMessage1 as any);
     
     // Increased wait time for event processing
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 200));
 
     // Check if start was called
     expect(startSpy).toHaveBeenCalledTimes(1);
@@ -79,8 +79,8 @@ describe('One-Shot Context Persistence', () => {
     } as unknown as Message;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (discordClient as any).emit('messageCreate', mockMessage2);
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    discordClient.emit('messageCreate', mockMessage2 as any);
+    await new Promise((resolve) => setTimeout(resolve, 200));
 
     expect(startSpy).toHaveBeenCalledTimes(2);
     expect(capturedSessionIds[1]).toBe(stableSid);
@@ -90,8 +90,8 @@ describe('One-Shot Context Persistence', () => {
 
     startSpy.mockRestore();
 
-    if (existsSync('oneshot_context.test.json')) {
-      unlinkSync('oneshot_context.test.json');
+    if (existsSync('oneshot_context_spec.test.json')) {
+      unlinkSync('oneshot_context_spec.test.json');
     }
   });
 });

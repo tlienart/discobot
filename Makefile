@@ -1,7 +1,7 @@
 .PHONY: run test lint format clean clean-bot ci
 
 # Binary path for bun
-BUN := $(HOME)/.bun/bin/bun
+BUN := $(shell which bun 2>/dev/null || echo $(HOME)/.bun/bin/bun)
 
 run:
 	$(BUN) index.ts

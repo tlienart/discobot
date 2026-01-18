@@ -4,7 +4,7 @@ import { OpenCodeProcess } from './opencode';
 import { MockProcess } from './mock';
 import { unlinkSync, existsSync } from 'fs';
 
-const TEST_DB = 'sessions.test.json';
+const TEST_DB = 'sessions_test_spec.json';
 
 describe('SessionManager', () => {
   beforeEach(() => {
