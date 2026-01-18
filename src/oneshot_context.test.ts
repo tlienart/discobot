@@ -1,64 +1,48 @@
-import { expect, test, describe, mock, spyOn, beforeEach, afterEach } from 'bun:test';
+import { expect, test, describe, mock, spyOn, beforeEach } from 'bun:test';
 import { DiscordClient } from './discord';
-import { ChannelType, type TextChannel, type Message } from 'discord.js';
+import { ChannelType, type Message, type TextChannel } from 'discord.js';
 import { EventEmitter } from 'events';
 import * as opencode from './opencode';
 import { existsSync, unlinkSync } from 'fs';
 
 describe('One-Shot Context Persistence', () => {
   let client: DiscordClient;
-  let mockChannel: EventEmitter;
-  let startSpy: unknown;
+  let mockChannel: EventEmitter & { id: string; send: ReturnType<typeof mock>; type: ChannelType };
 
   beforeEach(() => {
     process.env.DISCORD_TOKEN = 'test-token';
     process.env.DISCORD_CLIENT_ID = 'test-client-id';
     process.env.DISCORD_GUILD_ID = 'test-guild-id';
-    process.env.SESSION_DB = 'oneshot_context_final_v3.test.json';
+    process.env.SESSION_DB = 'oneshot_context.test.json';
 
-    if (existsSync('oneshot_context_final_v3.test.json')) {
-      unlinkSync('oneshot_context_final_v3.test.json');
-    }
-
+    // @ts-expect-error: mocking
     mockChannel = new EventEmitter();
-    // @ts-expect-error: mocking
     mockChannel.id = 'channel-oneshot';
-    // @ts-expect-error: mocking
     mockChannel.send = mock(async () => ({}));
-    // @ts-expect-error: mocking
     mockChannel.type = ChannelType.GuildText;
 
     client = new DiscordClient();
-  });
-
-  afterEach(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (startSpy) (startSpy as any).mockRestore();
-    if (existsSync('oneshot_context_final_v3.test.json')) {
-      unlinkSync('oneshot_context_final_v3.test.json');
-    }
   });
 
   test('should reuse stable sessionId for multiple oneshot messages', async () => {
     const discordClient = client.getClient();
     const sessionManager = client.getSessionManager();
 
+    // 1. Manually prepare a oneshot session for a channel
     const stableSid = 'ses_oneshot_stable_123';
     sessionManager.prepareOneShotSession('channel-oneshot', stableSid);
 
-    const capturedSessionIds: string[] = [];
-    let resolveTurn: (() => void) | null = null;
-
-    startSpy = spyOn(opencode.OneShotOpenCodeProcess.prototype, 'start').mockImplementation(
+    // 2. Spy on OneShotOpenCodeProcess constructor or start method
+    const capturedSessionIds: (string | undefined)[] = [];
+    const startSpy = spyOn(opencode.OneShotOpenCodeProcess.prototype, 'start').mockImplementation(
       async function (this: opencode.OneShotOpenCodeProcess) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        capturedSessionIds.push((this as any).sessionId);
-        if (resolveTurn) resolveTurn();
+        // @ts-expect-error: accessing private sessionId
+        capturedSessionIds.push(this.sessionId);
         return Promise.resolve();
       },
     );
 
-    // Turn 1
+    // 3. Simulate first message
     const mockMessage1 = {
       author: { bot: false },
       channelId: 'channel-oneshot',
@@ -66,21 +50,17 @@ describe('One-Shot Context Persistence', () => {
       react: mock(async () => ({})),
       channel: mockChannel as unknown as TextChannel,
       reply: mock(async () => ({})),
-    } as unknown as Message;
+    };
 
-    const turn1Promise = new Promise<void>((resolve) => {
-      resolveTurn = resolve;
-    });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    discordClient.emit('messageCreate' as any, mockMessage1 as any);
-    await turn1Promise;
+    // @ts-expect-error: mocking
+    discordClient.emit('messageCreate', mockMessage1 as unknown as Message);
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(startSpy as any).toHaveBeenCalledTimes(1);
+    // Check if start was called
+    expect(startSpy).toHaveBeenCalledTimes(1);
     expect(capturedSessionIds[0]).toBe(stableSid);
 
-    // Turn 2
+    // 4. Simulate second message ("and in Oslo?")
     const mockMessage2 = {
       author: { bot: false },
       channelId: 'channel-oneshot',
@@ -88,21 +68,22 @@ describe('One-Shot Context Persistence', () => {
       react: mock(async () => ({})),
       channel: mockChannel as unknown as TextChannel,
       reply: mock(async () => ({})),
-    } as unknown as Message;
+    };
 
-    const turn2Promise = new Promise<void>((resolve) => {
-      resolveTurn = resolve;
-    });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    discordClient.emit('messageCreate' as any, mockMessage2 as any);
-    await turn2Promise;
+    // @ts-expect-error: mocking
+    discordClient.emit('messageCreate', mockMessage2 as unknown as Message);
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(startSpy as any).toHaveBeenCalledTimes(2);
+    expect(startSpy).toHaveBeenCalledTimes(2);
     expect(capturedSessionIds[1]).toBe(stableSid);
 
     expect(mockMessage1.react).toHaveBeenCalledWith('📥');
     expect(mockMessage2.react).toHaveBeenCalledWith('📥');
+
+    startSpy.mockRestore();
+
+    if (existsSync('oneshot_context.test.json')) {
+      unlinkSync('oneshot_context.test.json');
+    }
   });
 });

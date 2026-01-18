@@ -9,7 +9,6 @@ import {
   ChannelType,
   type Message,
   MessageFlags,
-  type Interaction,
   IntentsBitField,
 } from 'discord.js';
 import { readFileSync, existsSync } from 'fs';
@@ -32,9 +31,6 @@ export class DiscordClient {
 
   // Track if a channel is currently busy with a process
   private channelBusy: Set<string> = new Set();
-
-  private outputBuffers: Map<string, string> = new Map();
-  private summarizationInProgress: Set<string> = new Set();
 
   constructor() {
     this.token = process.env.DISCORD_TOKEN || '';
@@ -62,7 +58,7 @@ export class DiscordClient {
       console.log(`Ready! Logged in as ${readyClient.user.tag}`);
     });
 
-    this.client.on(Events.InteractionCreate, async (interaction: Interaction) => {
+    this.client.on(Events.InteractionCreate, async (interaction) => {
       if (!interaction.isChatInputCommand()) return;
 
       const { commandName, options, channelId, guild } = interaction;
@@ -72,35 +68,16 @@ export class DiscordClient {
           await interaction.reply('Pong!');
           break;
 
-        case 'setup': {
-          const category = options.getChannel('category');
-          if (category && category.type === ChannelType.GuildCategory) {
-            this.sessionManager.setCategoryId(category.id);
-            await interaction.reply({
-              content: `Successfully set session category to: **${category.name}** (${category.id})`,
-              flags: [MessageFlags.Ephemeral],
-            });
-          } else {
-            await interaction.reply({
-              content: 'Please provide a valid category.',
-              flags: [MessageFlags.Ephemeral],
-            });
-          }
-          break;
-        }
-
         case 'new': {
           const prompt = options.getString('prompt') || 'Hello! How can you help me today?';
           const mode = options.getString('mode') || 'oneshot';
           await interaction.deferReply();
 
           try {
-            let parentId = this.sessionManager.getCategoryId();
-            if (!parentId && guild && typeof guild.channels.fetch === 'function') {
-              const currentChannel = await guild.channels.fetch(channelId);
-              if (currentChannel && 'parentId' in currentChannel && currentChannel.parentId) {
-                parentId = currentChannel.parentId;
-              }
+            let parentId: string | null = null;
+            const currentChannel = await guild?.channels.fetch(channelId);
+            if (currentChannel && 'parentId' in currentChannel && currentChannel.parentId) {
+              parentId = currentChannel.parentId;
             }
 
             const channel = await guild?.channels.create({
@@ -140,12 +117,10 @@ export class DiscordClient {
           await interaction.deferReply();
 
           try {
-            let parentId = this.sessionManager.getCategoryId();
-            if (!parentId && guild && typeof guild.channels.fetch === 'function') {
-              const currentChannel = await guild.channels.fetch(channelId);
-              if (currentChannel && 'parentId' in currentChannel && currentChannel.parentId) {
-                parentId = currentChannel.parentId;
-              }
+            let parentId: string | null = null;
+            const currentChannel = await guild?.channels.fetch(channelId);
+            if (currentChannel && 'parentId' in currentChannel && currentChannel.parentId) {
+              parentId = currentChannel.parentId;
             }
 
             const channel = await guild?.channels.create({
@@ -240,9 +215,8 @@ export class DiscordClient {
             intents instanceof IntentsBitField
               ? intents.has(GatewayIntentBits.MessageContent)
               : false;
-          const categoryId = this.sessionManager.getCategoryId();
           await interaction.reply({
-            content: `**Debug Info:**\n- Message Content Intent: ${msgContentIntent ? '✅ Enabled' : '❌ Disabled'}\n- Active Sessions: ${this.sessionManager.getChannelMapping().size}\n- Category Set: ${categoryId ? '✅' : '❌'}`,
+            content: `**Debug Info:**\n- Message Content Intent: ${msgContentIntent ? '✅ Enabled' : '❌ Disabled'}\n- Active Sessions: ${this.sessionManager.getChannelMapping().size}`,
             flags: [MessageFlags.Ephemeral],
           });
           break;
@@ -299,72 +273,16 @@ export class DiscordClient {
     });
   }
 
-  private async sendLongMessage(channel: TextChannel, content: string) {
-    if (content.length <= 2000) {
-      await channel.send(content).catch(console.error);
-      return;
-    }
-
-    const chunks = [];
-    let current = content;
-    while (current.length > 0) {
-      chunks.push(current.slice(0, 1900));
-      current = current.slice(1900);
-    }
-
-    for (const chunk of chunks) {
-      await channel.send(chunk).catch(console.error);
-    }
-  }
-
-  private async handleTurnEnd(channel: TextChannel, session: Agent) {
-    const buffer = this.outputBuffers.get(channel.id) || '';
-    if (!buffer) return;
-
-    this.outputBuffers.set(channel.id, ''); // Clear for next turn
-
-    if (buffer.length > 2000 && !this.summarizationInProgress.has(channel.id)) {
-      await channel.send('⚠️ **Response is too long (>2000 chars). Requesting a summary...**');
-      this.summarizationInProgress.add(channel.id);
-
-      const summaryPrompt =
-        'The previous answer was too long for the user interface. Please provide a concise summary of that answer (keeping the most important parts) and ensure the summary is under 2000 characters.';
-
-      try {
-        const mode = this.sessionManager.getSessionType(channel.id);
-        const stableSid = this.sessionManager.getChannelMapping().get(channel.id);
-
-        if (mode === 'oneshot') {
-          const freshSession = new OneShotOpenCodeProcess(stableSid);
-          this.attachSessionListeners(freshSession, channel);
-          this.channelBusy.add(channel.id);
-          await freshSession.start(summaryPrompt);
-          this.channelBusy.delete(channel.id);
-        } else {
-          session.sendInput(summaryPrompt);
-        }
-      } catch (err) {
-        console.error('[Discord] Summarization failed:', err);
-        this.summarizationInProgress.delete(channel.id);
-        await this.sendLongMessage(channel, buffer); // Fallback to chunked
-      }
-    } else {
-      this.summarizationInProgress.delete(channel.id);
-      await this.sendLongMessage(channel, buffer);
-    }
-  }
-
   private attachSessionListeners(session: Agent, channel: TextChannel) {
     let firstOutput = true;
-    this.outputBuffers.set(channel.id, '');
 
     session.on('output', (text: string) => {
       if (firstOutput) {
         console.log(`[Discord] First output received for channel ${channel.id}`);
         firstOutput = false;
       }
-      const currentBuffer = this.outputBuffers.get(channel.id) || '';
-      this.outputBuffers.set(channel.id, currentBuffer + text);
+      console.log(`[Discord] Sending output to channel ${channel.id}`);
+      channel.send(text).catch(console.error);
     });
 
     session.on('thinking', (isThinking: boolean) => {
@@ -408,8 +326,7 @@ export class DiscordClient {
       });
     }
 
-    session.on('idle', async () => {
-      await this.handleTurnEnd(channel, session);
+    session.on('idle', () => {
       channel.send('✅ **Ready for input**').catch(console.error);
     });
 
@@ -420,12 +337,13 @@ export class DiscordClient {
         .catch(console.error);
     });
 
-    session.on('stderr', (_data: string) => {
-      // Stderr logging disabled to reduce noise
+    session.on('stderr', (data: string) => {
+      if (data.trim()) {
+        // channel.send(`⚠️ **Stderr:**\n\`\`\`\n${data.substring(0, 1500)}\n\`\`\``).catch(console.error);
+      }
     });
 
     session.on('exit', async (code: number) => {
-      await this.handleTurnEnd(channel, session);
       if (code !== 0 && code !== null) {
         channel.send(`⚠️ **Process exited with code ${code}**`).catch(console.error);
 
@@ -449,16 +367,6 @@ export class DiscordClient {
   async registerCommands() {
     const commands = [
       new SlashCommandBuilder().setName('ping').setDescription('Replies with Pong!'),
-      new SlashCommandBuilder()
-        .setName('setup')
-        .setDescription('Set the category for new session channels')
-        .addChannelOption((option) =>
-          option
-            .setName('category')
-            .setDescription('The category where sessions will be created')
-            .addChannelTypes(ChannelType.GuildCategory)
-            .setRequired(true),
-        ),
       new SlashCommandBuilder()
         .setName('new')
         .setDescription('Start a new OpenCode session (One-Shot by default)')
@@ -578,10 +486,6 @@ export class DiscordClient {
 
   getClient() {
     return this.client;
-  }
-
-  getCategoryId() {
-    return this.sessionManager.getCategoryId();
   }
 
   getSessionManager() {

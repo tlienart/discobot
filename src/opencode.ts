@@ -90,11 +90,11 @@ export class OneShotOpenCodeProcess extends EventEmitter implements Agent {
       this.stopHeartbeat();
 
       this.emit('exit', code);
-    } catch (_error) {
-      console.error('[OneShot] Failed to spawn:', _error);
+    } catch (error) {
+      console.error('[OneShot] Failed to spawn:', error);
       this.stopHeartbeat();
-      this.emit('error', _error);
-      throw _error;
+      this.emit('error', error as Error);
+      throw error;
     }
   }
 
@@ -164,14 +164,14 @@ export class OneShotOpenCodeProcess extends EventEmitter implements Agent {
         }
       }
     } catch {
-      // Log file might not exist yet
+      // Ignore
     }
   }
 
   private handleChunk(chunk: string) {
     this.buffer += chunk;
     const lines = this.buffer.split('\n');
-    this.buffer = lines.pop() || ''; // Keep the last partial line
+    this.buffer = lines.pop() || '';
 
     for (const line of lines) {
       if (!line.trim()) continue;
@@ -179,7 +179,7 @@ export class OneShotOpenCodeProcess extends EventEmitter implements Agent {
         const event: OpenCodeEvent = JSON.parse(line);
         this.processEvent(event);
       } catch {
-        // Ignore parse errors for non-JSON lines
+        // Ignore
       }
     }
   }
@@ -194,8 +194,6 @@ export class OneShotOpenCodeProcess extends EventEmitter implements Agent {
     } else if (event.type === 'step_finish') {
       this.emit('thinking', false);
       if (event.part?.reason === 'stop') this.emit('idle');
-    } else if (event.type === 'tool_use') {
-      // Thinking indicator is handled by step_start, so we don't need a separate message
     }
   }
 
@@ -282,11 +280,11 @@ export class OpenCodeProcess extends EventEmitter implements Agent {
         this.emit('exit', code);
         this.emit('thinking', false);
       });
-    } catch (_error) {
-      console.error('[OpenCode] Failed to spawn process:', _error);
+    } catch (error) {
+      console.error('[OpenCode] Failed to spawn process:', error);
       this.stopHeartbeat();
-      this.emit('error', _error);
-      throw _error;
+      this.emit('error', error as Error);
+      throw error;
     }
   }
 
@@ -379,7 +377,7 @@ export class OpenCodeProcess extends EventEmitter implements Agent {
         this.emit('event', event);
         this.processEvent(event);
       } catch {
-        // Skip partials or non-JSON
+        // Skip partials
       }
     }
   }
