@@ -68,7 +68,6 @@ export class SessionManager {
 
   private ensurePrefix(sid: string): string {
     if (sid.startsWith('ses_')) return sid;
-    if (sid.startsWith('ses')) return `ses_${sid.substring(3)}`;
     return `ses_${sid}`;
   }
 
@@ -89,11 +88,11 @@ export class SessionManager {
   prepareSession(channelId: string, sessionId?: string): Agent {
     const sid = sessionId ? this.ensurePrefix(sessionId) : this.generateBotSessionId();
     const session = new OpenCodeProcess(sid);
-    
+
     this.sessions.set(channelId, session);
     this.channelToSession.set(channelId, sid);
     this.channelToType.set(channelId, 'persistent');
-    
+
     this.savePersistence();
     this.attachIdListener(channelId, session);
     return session;
@@ -102,11 +101,11 @@ export class SessionManager {
   prepareOneShotSession(channelId: string, sessionId?: string): Agent {
     const sid = sessionId ? this.ensurePrefix(sessionId) : this.generateBotSessionId();
     const session = new OneShotOpenCodeProcess(sid);
-    
+
     this.sessions.set(channelId, session);
     this.channelToSession.set(channelId, sid);
     this.channelToType.set(channelId, 'oneshot');
-    
+
     this.savePersistence();
     this.attachIdListener(channelId, session);
     return session;
@@ -115,11 +114,11 @@ export class SessionManager {
   prepareMockSession(channelId: string, sessionId?: string): Agent {
     const sid = sessionId ? this.ensurePrefix(sessionId) : this.generateBotSessionId();
     const session = new MockProcess(sid);
-    
+
     this.sessions.set(channelId, session);
     this.channelToSession.set(channelId, sid);
     this.channelToType.set(channelId, 'mock');
-    
+
     this.savePersistence();
     return session;
   }

@@ -1,6 +1,14 @@
 import { EventEmitter } from 'events';
 import { spawn, type Subprocess } from 'bun';
-import { openSync, readSync, statSync, closeSync, writeFileSync, readFileSync, existsSync } from 'fs';
+import {
+  openSync,
+  readSync,
+  statSync,
+  closeSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+} from 'fs';
 import { type Agent } from './agent';
 
 export interface OpenCodeEvent {
@@ -41,11 +49,11 @@ export class OneShotOpenCodeProcess extends EventEmitter implements Agent {
 
   async start(prompt?: string) {
     const args = ['run', '--format', 'json'];
-    
+
     if (this.sessionId) {
       args.push('--session', this.sessionId);
     }
-    
+
     if (prompt) {
       args.push(prompt);
     }
@@ -74,13 +82,13 @@ export class OneShotOpenCodeProcess extends EventEmitter implements Agent {
 
       const code = await this.process.exited;
       console.log(`[OneShot] PID ${this.process.pid} exited with code ${code}`);
-      
+
       // Final tail to catch trailing data
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise((r) => setTimeout(r, 500));
       this.tailLog();
       this.stopTailing();
       this.stopHeartbeat();
-      
+
       this.emit('exit', code);
     } catch (error) {
       console.error('[OneShot] Failed to spawn:', error);
@@ -95,7 +103,9 @@ export class OneShotOpenCodeProcess extends EventEmitter implements Agent {
     this.heartbeatTimer = setInterval(() => {
       const inactiveSeconds = Math.floor((Date.now() - this.lastActivity) / 1000);
       if (inactiveSeconds >= 5) {
-        console.log(`[OneShot Heartbeat] PID ${this.process?.pid} active, no activity for ${inactiveSeconds}s...`);
+        console.log(
+          `[OneShot Heartbeat] PID ${this.process?.pid} active, no activity for ${inactiveSeconds}s...`,
+        );
         this.emit('heartbeat', inactiveSeconds);
       }
     }, 5000);
@@ -142,7 +152,7 @@ export class OneShotOpenCodeProcess extends EventEmitter implements Agent {
           this.handleChunk(readBuffer.toString('utf-8'));
         }
       }
-      
+
       if (existsSync(this.stderrPath)) {
         const errStats = statSync(this.stderrPath);
         if (errStats.size > 0) {
@@ -214,9 +224,15 @@ export class OneShotOpenCodeProcess extends EventEmitter implements Agent {
     this.stopHeartbeat();
   }
 
-  getPid() { return this.process?.pid; }
-  getStdoutPath() { return this.stdoutPath; }
-  getStderrPath() { return this.stderrPath; }
+  getPid() {
+    return this.process?.pid;
+  }
+  getStdoutPath() {
+    return this.stdoutPath;
+  }
+  getStderrPath() {
+    return this.stderrPath;
+  }
 }
 
 /**
@@ -339,7 +355,7 @@ export class OpenCodeProcess extends EventEmitter implements Agent {
           const bufferSize = stats.size - this.currentOffset;
           const readBuffer = Buffer.alloc(bufferSize);
           readSync(this.stdoutFd, readBuffer, 0, bufferSize, this.currentOffset);
-          
+
           this.currentOffset = stats.size;
           this.lastActivity = Date.now();
 
@@ -387,7 +403,9 @@ export class OpenCodeProcess extends EventEmitter implements Agent {
         this.buffer = this.buffer.substring(i + 1);
         try {
           const event: OpenCodeEvent = JSON.parse(jsonStr);
-          console.log(`[OpenCode Event] type=${event.type} sessionID=${event.sessionID || event.part?.sessionID || 'unknown'}`);
+          console.log(
+            `[OpenCode Event] type=${event.type} sessionID=${event.sessionID || event.part?.sessionID || 'unknown'}`,
+          );
           this.emit('event', event);
           this.processEvent(event);
         } catch {

@@ -5,7 +5,7 @@ import { SessionManager } from './sessions';
 import { OpenCodeProcess } from './opencode';
 import { unlinkSync, existsSync, writeFileSync } from 'fs';
 
-const TEST_DB = 'sessions.test.json';
+const TEST_DB = 'sessions_discord_final.test.json';
 
 describe('DiscordClient', () => {
   afterAll(() => {
@@ -72,7 +72,10 @@ describe('DiscordClient', () => {
   });
 
   test('should handle /new command', async () => {
-    const prepareSessionSpy = spyOn(SessionManager.prototype, 'prepareOneShotSession').mockReturnValue(new OpenCodeProcess('ses_test-session'));
+    const prepareSessionSpy = spyOn(
+      SessionManager.prototype,
+      'prepareOneShotSession',
+    ).mockReturnValue(new OpenCodeProcess('ses_test-session'));
     const startSpy = spyOn(OpenCodeProcess.prototype, 'start').mockImplementation(async () => {});
 
     const client = new DiscordClient();
@@ -87,7 +90,7 @@ describe('DiscordClient', () => {
       isChatInputCommand: () => true,
       commandName: 'new',
       options: {
-        getString: (name: string) => name === 'prompt' ? 'hello' : 'oneshot',
+        getString: (name: string) => (name === 'prompt' ? 'hello' : 'oneshot'),
       },
       guild: {
         channels: {
@@ -101,11 +104,12 @@ describe('DiscordClient', () => {
     } as unknown as ChatInputCommandInteraction;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    client.getClient().emit('interactionCreate', mockInteraction);
+    client.getClient().emit('interactionCreate', mockInteraction as any);
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     expect(mockInteraction.deferReply).toHaveBeenCalled();
-    expect(mockInteraction.guild?.channels.create).toHaveBeenCalled();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((mockInteraction.guild as any).channels.create).toHaveBeenCalled();
     expect(prepareSessionSpy).toHaveBeenCalledWith('123456789012345678');
     expect(startSpy).toHaveBeenCalledWith('hello');
     expect(mockInteraction.editReply).toHaveBeenCalled();
@@ -120,7 +124,7 @@ describe('DiscordClient', () => {
       () =>
         ({
           sendInput: sendInputSpy,
-        } as unknown as OpenCodeProcess),
+        }) as unknown as OpenCodeProcess,
     );
 
     const client = new DiscordClient();

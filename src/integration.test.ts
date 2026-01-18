@@ -73,10 +73,10 @@ describe('Integration: Full Flow', () => {
       commandName: 'new',
       options: {
         getString: (name: string) => {
-           if (name === 'prompt') return 'Start test session';
-           if (name === 'mode') return 'persistent';
-           return null;
-        }
+          if (name === 'prompt') return 'Start test session';
+          if (name === 'mode') return 'persistent';
+          return null;
+        },
       },
       guild: mockGuild as Guild,
       deferReply: mock(async () => {}),

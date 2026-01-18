@@ -13,7 +13,7 @@ describe('OpenCodeProcess', () => {
     op.on('thinking', (val) => (thinking = val));
     op.on('output', (val) => (output += val));
     op.on('idle', () => (idle = true));
-    op.on('event', (e) => (eventData.push(e)));
+    op.on('event', (e) => eventData.push(e));
 
     // Simulate chunks
     // @ts-expect-error: accessing private method for testing
@@ -43,7 +43,7 @@ describe('OneShotOpenCodeProcess', () => {
 
     op.on('thinking', (val) => (thinking = val));
     op.on('output', (val) => (output += val));
-    op.on('event', (e) => (eventData.push(e)));
+    op.on('event', (e) => eventData.push(e));
 
     // @ts-expect-error: accessing private method for testing
     op.handleChunk('{"type":"step_start","sessionID":"oneshot123"}\n');

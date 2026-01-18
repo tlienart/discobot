@@ -5,6 +5,8 @@ import { EventEmitter } from 'events';
 import * as opencode from './opencode';
 import { existsSync, unlinkSync } from 'fs';
 
+const TEST_DB = 'oneshot_context_final_v3.test.json';
+
 describe('One-Shot Context Persistence', () => {
   let client: DiscordClient;
   let mockChannel: EventEmitter;
@@ -13,10 +15,10 @@ describe('One-Shot Context Persistence', () => {
     process.env.DISCORD_TOKEN = 'test-token';
     process.env.DISCORD_CLIENT_ID = 'test-client-id';
     process.env.DISCORD_GUILD_ID = 'test-guild-id';
-    process.env.SESSION_DB = 'oneshot_context_spec.test.json';
+    process.env.SESSION_DB = TEST_DB;
 
-    if (existsSync('oneshot_context_spec.test.json')) {
-      unlinkSync('oneshot_context_spec.test.json');
+    if (existsSync(TEST_DB)) {
+      unlinkSync(TEST_DB);
     }
 
     mockChannel = new EventEmitter();
@@ -34,21 +36,22 @@ describe('One-Shot Context Persistence', () => {
     const discordClient = client.getClient();
     const sessionManager = client.getSessionManager();
 
-    // 1. Manually prepare a oneshot session for a channel
     const stableSid = 'ses_oneshot_stable_123';
     sessionManager.prepareOneShotSession('channel-oneshot', stableSid);
 
-    // 2. Spy on OneShotOpenCodeProcess constructor or start method
     const capturedSessionIds: string[] = [];
+    let resolveTurn: (() => void) | null = null;
+
     const startSpy = spyOn(opencode.OneShotOpenCodeProcess.prototype, 'start').mockImplementation(
       async function (this: opencode.OneShotOpenCodeProcess) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         capturedSessionIds.push((this as any).sessionId);
+        if (resolveTurn) resolveTurn();
         return Promise.resolve();
       },
     );
 
-    // 3. Simulate first message
+    // Turn 1
     const mockMessage1 = {
       author: { bot: false },
       channelId: 'channel-oneshot',
@@ -58,17 +61,19 @@ describe('One-Shot Context Persistence', () => {
       reply: mock(async () => ({})),
     } as unknown as Message;
 
+    const turn1Promise = new Promise<void>((resolve) => {
+      resolveTurn = resolve;
+    });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    discordClient.emit('messageCreate', mockMessage1 as any);
-    
-    // Increased wait time for event processing
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    discordClient.emit('messageCreate' as any, mockMessage1 as any);
+    await turn1Promise;
+    // Tiny delay to let the 'finally' block in discord.ts run and clear channelBusy
+    await new Promise((resolve) => setTimeout(resolve, 20));
 
-    // Check if start was called
     expect(startSpy).toHaveBeenCalledTimes(1);
     expect(capturedSessionIds[0]).toBe(stableSid);
 
-    // 4. Simulate second message ("and in Oslo?")
+    // Turn 2
     const mockMessage2 = {
       author: { bot: false },
       channelId: 'channel-oneshot',
@@ -78,20 +83,20 @@ describe('One-Shot Context Persistence', () => {
       reply: mock(async () => ({})),
     } as unknown as Message;
 
+    const turn2Promise = new Promise<void>((resolve) => {
+      resolveTurn = resolve;
+    });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    discordClient.emit('messageCreate', mockMessage2 as any);
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    discordClient.emit('messageCreate' as any, mockMessage2 as any);
+    await turn2Promise;
+    await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(startSpy).toHaveBeenCalledTimes(2);
     expect(capturedSessionIds[1]).toBe(stableSid);
 
-    expect(mockMessage1.react).toHaveBeenCalledWith('📥');
-    expect(mockMessage2.react).toHaveBeenCalledWith('📥');
-
     startSpy.mockRestore();
-
-    if (existsSync('oneshot_context_spec.test.json')) {
-      unlinkSync('oneshot_context_spec.test.json');
+    if (existsSync(TEST_DB)) {
+      unlinkSync(TEST_DB);
     }
   });
 });

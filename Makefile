@@ -16,10 +16,11 @@ format:
 	$(BUN) run format
 
 clean:
-	rm -f sessions.json sessions.test.json
+	rm -f sessions.json sessions.test.json *.test.json logs/*.stdout logs/*.stderr logs/*.out
 
 # Surgically kill only bot-managed sessions
 clean-bot:
 	pgrep -f "ses_" | xargs kill -9 || true
 
-ci: lint test
+# Single source of truth for CI readiness
+ci: format lint test
