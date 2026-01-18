@@ -82,6 +82,7 @@ export class SessionManager {
 
   prepareSession(channelId: string, sessionId?: string): Agent {
     const sid = sessionId ? this.ensurePrefix(sessionId) : this.generateBotSessionId();
+    
     const session = new OpenCodeProcess(sid);
     this.sessions.set(channelId, session);
     this.channelToSession.set(channelId, sid);
@@ -94,6 +95,7 @@ export class SessionManager {
 
   prepareOneShotSession(channelId: string, sessionId?: string): Agent {
     const sid = sessionId ? this.ensurePrefix(sessionId) : this.generateBotSessionId();
+
     const session = new OneShotOpenCodeProcess(sid);
     this.sessions.set(channelId, session);
     this.channelToSession.set(channelId, sid);
@@ -106,6 +108,7 @@ export class SessionManager {
 
   prepareMockSession(channelId: string, sessionId?: string): Agent {
     const sid = sessionId ? this.ensurePrefix(sessionId) : this.generateBotSessionId();
+
     const session = new MockProcess(sid);
     this.sessions.set(channelId, session);
     this.channelToSession.set(channelId, sid);

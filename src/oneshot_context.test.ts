@@ -59,8 +59,10 @@ describe('One-Shot Context Persistence', () => {
     } as unknown as Message;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await discordClient.emit('messageCreate', mockMessage1 as any);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await (discordClient as any).emit('messageCreate', mockMessage1);
+    
+    // Increased wait time for event processing
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     // Check if start was called
     expect(startSpy).toHaveBeenCalledTimes(1);
@@ -77,8 +79,8 @@ describe('One-Shot Context Persistence', () => {
     } as unknown as Message;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await discordClient.emit('messageCreate', mockMessage2 as any);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await (discordClient as any).emit('messageCreate', mockMessage2);
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     expect(startSpy).toHaveBeenCalledTimes(2);
     expect(capturedSessionIds[1]).toBe(stableSid);

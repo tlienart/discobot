@@ -93,7 +93,7 @@ export class DiscordClient {
 
           try {
             let parentId = this.sessionManager.getCategoryId();
-            if (!parentId && guild) {
+            if (!parentId && guild && typeof guild.channels.fetch === 'function') {
               const currentChannel = await guild.channels.fetch(channelId);
               if (currentChannel && 'parentId' in currentChannel && currentChannel.parentId) {
                 parentId = currentChannel.parentId;
@@ -137,7 +137,7 @@ export class DiscordClient {
 
           try {
             let parentId = this.sessionManager.getCategoryId();
-            if (!parentId && guild) {
+            if (!parentId && guild && typeof guild.channels.fetch === 'function') {
               const currentChannel = await guild.channels.fetch(channelId);
               if (currentChannel && 'parentId' in currentChannel && currentChannel.parentId) {
                 parentId = currentChannel.parentId;

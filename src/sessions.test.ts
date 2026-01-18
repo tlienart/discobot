@@ -59,6 +59,7 @@ describe('SessionManager', () => {
   test('should enforce prefixes', () => {
     const sm = new SessionManager(TEST_DB);
     sm.prepareSession('chan-prefix-test', 'my-session');
+    // It should prefix with ses_
     expect(sm.getChannelMapping().get('chan-prefix-test')).toBe('ses_my-session');
 
     sm.prepareMockSession('chan-mock-test', 'mock-session');

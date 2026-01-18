@@ -1,4 +1,4 @@
-.PHONY: run test lint format clean
+.PHONY: run test lint format clean clean-bot ci
 
 # Binary path for bun
 BUN := $(HOME)/.bun/bin/bun
@@ -20,4 +20,6 @@ clean:
 
 # Surgically kill only bot-managed sessions
 clean-bot:
-	pgrep -f "discobot_" | xargs kill -9 || true
+	pgrep -f "ses_" | xargs kill -9 || true
+
+ci: lint test
