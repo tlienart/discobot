@@ -1,58 +1,65 @@
-# Discord-OpenCode Bridge
+# Discord-OpenCode Bridge 🚀
 
-A portable bridge that allows you to interact with long-running `opencode` sessions directly from Discord.
+The **Discord-OpenCode Bridge** allows you to control and monitor multiple `opencode` sessions on your computer directly from Discord.
 
-## Features
+### Why is this useful?
 
-- **Long-Running Sessions**: Persists context across multiple interactions.
-- **Headless Management**: Start (`/new`) and resume (`/resume`) sessions from Discord.
-- **Smart Filtering**: Filters out agent internal logs, showing only actionable output.
-- **Visual Feedback**: Real-time "Typing" indicators when the agent is working.
-- **Remote Control**: Send interrupt signals (`/interrupt`) to stop runaway processes.
+- **Remote Control:** Run `opencode` tasks from your phone, tablet, or another computer while you're away from your desk.
+- **Session Persistence:** Start a task at home and check its progress or provide input from anywhere.
+- **Multitasking:** Manage several independent agent sessions simultaneously, each in its own dedicated Discord channel.
+- **No Setup Required on Mobile:** As long as the bridge is running on your Mac/PC, you can interact with it using the standard Discord app.
 
-## Prerequisites
+---
 
-1. **Bun**: [Install Bun](https://bun.sh/)
-2. **OpenCode**: Ensure `opencode` is installed and available in your PATH.
+## ⚡ Quick Start
 
-## Setup Instructions
+### 1. Prerequisites
 
-### 1. Discord Bot Configuration
+- **OpenCode:** Ensure `opencode` is installed on your machine.
+- **Make:** Most systems have this by default.
 
-1. Go to the [Discord Developer Portal](https://discord.com/developers/applications).
-2. Create a **New Application**.
-3. Under the **Bot** tab:
-   - Reset/Copy your **Token**.
-   - **CRITICAL**: Scroll down to **Privileged Gateway Intents** and enable **Message Content Intent**.
-4. Under **OAuth2 -> URL Generator**:
-   - Select `bot` and `applications.commands` scopes.
-   - Select permissions: `Manage Channels`, `Send Messages`, `Read Message History`.
-   - Use the generated URL to invite the bot to your server.
+### 2. Discord Bot Setup
 
-### 2. Environment Setup
+0.  **Create a Server:** We highly recommend creating a dedicated Discord server just for your OpenCode sessions. This keeps your workspace clean and ensures your private sessions aren't mixed with other conversations. You can always add collaborators later if needed.
+1.  Go to the [Discord Developer Portal](https://discord.com/developers/applications).
+2.  Click **New Application** and give it a name.
+3.  **Get Client ID:** In **General Information**, copy the **Application ID**.
+4.  **Get Token:** In **Bot**, click **Reset Token** (or Copy) to get your bot token.
+5.  **Enable Intent:** In **Bot**, scroll down and enable **Message Content Intent** (this is required for the bot to read your prompts).
+6.  **Invite Bot:**
+    - Go to **OAuth2 -> URL Generator**.
+    - Select scopes: `bot` and `applications.commands`.
+    - Select permissions: `Manage Channels`, `Send Messages`, `Read Message History`.
+    - Copy the generated URL, paste it into your browser, and invite the bot to your server.
+7.  **Get Guild ID:** In Discord, right-click your server name and select **Copy Server ID** (if you don't see this, enable "Developer Mode" in Discord Settings -> Advanced).
 
-Create a `.env` file in the project root:
+### 3. Environment Configuration
+
+Create a `.env` file in the root of this project and fill in the details you gathered above:
 
 ```env
-DISCORD_TOKEN=your_bot_token
-DISCORD_CLIENT_ID=your_application_id
-DISCORD_GUILD_ID=your_server_id
+DISCORD_TOKEN=your_bot_token_here
+DISCORD_CLIENT_ID=your_application_id_here
+DISCORD_GUILD_ID=your_server_id_here
 ```
 
-### 3. Installation
+### 4. Run the Bridge
+
+Simply run the following command in your terminal:
 
 ```bash
-bun install
+make run
 ```
 
-## Usage
+_This command will automatically check for **Bun** (the runtime), install it if missing, set up dependencies, and start the bot._
 
-1. **Start the Bridge**:
-   ```bash
-   bun index.ts
-   ```
-2. **Configure Category**: In Discord, use `/setup` and select a category where the bot will create session channels.
-3. **Start a Session**: Use `/new prompt: "Help me build a web app"`.
-4. **Interact**: Once a channel is created, simply type messages in that channel to talk to the agent.
-5. **Resume**: Use `/resume session_id: "..."` to pick up an old conversation.
-6. **Interrupt**: Use `/interrupt` in a session channel to send a double-ESC signal.
+---
+
+## 🎮 How to Use
+
+1.  **Start a Task:** In your Discord server, use the `/new prompt: "Your request here"` command. The bot will create a new channel in the same category and start the agent.
+2.  **Interact:** Go to the newly created channel. Anything you type there will be sent as input to `opencode`.
+3.  **Control:**
+    - `/interrupt`: Stops a running task if it gets stuck.
+    - `/resume`: Connects to an existing session ID.
+    - `/peek-log`: Shows the raw output from the terminal for debugging.

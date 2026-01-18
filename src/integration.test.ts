@@ -1,7 +1,7 @@
 import { expect, test, describe, mock, spyOn, beforeEach, afterEach } from 'bun:test';
 import { DiscordClient } from './discord';
 import { SessionManager } from './sessions';
-import { ChannelType, type Guild, type TextChannel, type Message } from 'discord.js';
+import { ChannelType, type Guild, type Message, type TextChannel } from 'discord.js';
 import { EventEmitter } from 'events';
 import { existsSync, unlinkSync } from 'fs';
 import { type Agent } from './agent';
@@ -9,10 +9,20 @@ import { type Agent } from './agent';
 describe('Integration: Full Flow', () => {
   let client: DiscordClient;
   let mockGuild: unknown;
-  let mockChannel: EventEmitter;
-  let mockProcess: EventEmitter;
-  let prepareSpy: unknown;
-  let prepareOneShotSpy: unknown;
+  let mockChannel: EventEmitter & {
+    id: string;
+    send: ReturnType<typeof mock>;
+    sendTyping: ReturnType<typeof mock>;
+    type: ChannelType;
+  };
+  let mockProcess: EventEmitter & {
+    start: ReturnType<typeof mock>;
+    sendInput: ReturnType<typeof mock>;
+    stop: ReturnType<typeof mock>;
+    getPid: ReturnType<typeof mock>;
+    getStdoutPath: ReturnType<typeof mock>;
+    getStderrPath: ReturnType<typeof mock>;
+  };
 
   beforeEach(() => {
     process.env.DISCORD_TOKEN = 'test-token';
@@ -20,14 +30,11 @@ describe('Integration: Full Flow', () => {
     process.env.DISCORD_GUILD_ID = 'test-guild-id';
     process.env.SESSION_DB = 'integration.test.json';
 
+    // @ts-expect-error: mocking
     mockChannel = new EventEmitter();
-    // @ts-expect-error: mocking
     mockChannel.id = 'channel-123';
-    // @ts-expect-error: mocking
     mockChannel.send = mock(async () => ({}));
-    // @ts-expect-error: mocking
     mockChannel.sendTyping = mock(async () => ({}));
-    // @ts-expect-error: mocking
     mockChannel.type = ChannelType.GuildText;
 
     mockGuild = {
@@ -38,43 +45,34 @@ describe('Integration: Full Flow', () => {
     };
 
     // Mock SessionManager to avoid actual spawn
+    // @ts-expect-error: mocking
     mockProcess = new EventEmitter();
-    // @ts-expect-error: mocking
     mockProcess.start = mock(async () => {});
-    // @ts-expect-error: mocking
     mockProcess.sendInput = mock(() => {});
-    // @ts-expect-error: mocking
-    mockProcess.stop = mock(async () => {});
-    // @ts-expect-error: mocking
-    mockProcess.getStdoutPath = mock(() => 'test.stdout');
-    // @ts-expect-error: mocking
-    mockProcess.getStderrPath = mock(() => 'test.stderr');
+    mockProcess.stop = mock(() => {});
+    mockProcess.getPid = mock(() => 123);
+    mockProcess.getStdoutPath = mock(() => 'stdout');
+    mockProcess.getStderrPath = mock(() => 'stderr');
 
     const mockSessionCreator = (channelId: string) => {
-      const sm = client.getSessionManager();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (sm as any).sessions.set(channelId, mockProcess);
+      (client.getSessionManager() as any).sessions.set(channelId, mockProcess as unknown as Agent);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (sm as any).channelToType.set(channelId, 'persistent');
+      (client.getSessionManager() as any).channelToType.set(channelId, 'persistent');
       return mockProcess as unknown as Agent;
     };
 
-    prepareSpy = spyOn(SessionManager.prototype, 'prepareSession').mockImplementation(
-      mockSessionCreator,
-    );
-    prepareOneShotSpy = spyOn(SessionManager.prototype, 'prepareOneShotSession').mockImplementation(
-      mockSessionCreator,
-    );
+    spyOn(SessionManager.prototype, 'prepareSession').mockImplementation(mockSessionCreator);
+    spyOn(SessionManager.prototype, 'prepareOneShotSession').mockImplementation(mockSessionCreator);
 
     client = new DiscordClient();
-    client.getSessionManager().setCategoryId('cat-123');
   });
 
   afterEach(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (prepareSpy) (prepareSpy as any).mockRestore();
+    (SessionManager.prototype.prepareSession as any).mockRestore?.();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (prepareOneShotSpy) (prepareOneShotSpy as any).mockRestore();
+    (SessionManager.prototype.prepareOneShotSession as any).mockRestore?.();
     if (existsSync('integration.test.json')) {
       unlinkSync('integration.test.json');
     }
@@ -100,26 +98,21 @@ describe('Integration: Full Flow', () => {
       channelId: 'cmd-channel',
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    discordClient.emit('interactionCreate', mockInteraction as any);
+    // @ts-expect-error: mocking
+    discordClient.emit('interactionCreate', mockInteraction);
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(mockInteraction.deferReply).toHaveBeenCalled();
-    expect((mockGuild as { channels: { create: unknown } }).channels.create).toBeDefined();
+    expect((mockGuild as Guild).channels.create).toHaveBeenCalled();
     expect(mockInteraction.editReply).toHaveBeenCalled();
-    // @ts-expect-error: mocking
     expect(mockProcess.start).toHaveBeenCalledWith('Start test session');
 
     // 2. Simulate opencode output
     mockProcess.emit('output', 'Hello from OpenCode!');
-    mockProcess.emit('idle');
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    // @ts-expect-error: mocking
     expect(mockChannel.send).toHaveBeenCalledWith('Hello from OpenCode!');
 
     // 3. Simulate thinking status
     mockProcess.emit('thinking', true);
-    // @ts-expect-error: mocking
     expect(mockChannel.sendTyping).toHaveBeenCalled();
 
     // 4. Simulate user input in Discord
@@ -127,13 +120,12 @@ describe('Integration: Full Flow', () => {
       author: { bot: false },
       channelId: 'channel-123',
       content: 'Hello agent!',
-      react: mock(async () => ({})),
+      react: mock(async () => {}),
       channel: mockChannel as unknown as TextChannel,
     } as unknown as Message;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    discordClient.emit('messageCreate', mockMessage as any);
     // @ts-expect-error: mocking
+    discordClient.emit('messageCreate', mockMessage);
     expect(mockProcess.sendInput).toHaveBeenCalledWith('Hello agent!');
     expect(mockMessage.react).toHaveBeenCalledWith('📥');
   });

@@ -65,7 +65,7 @@ async function testContext() {
           console.log(`Captured Session ID: ${sessionId}`);
         }
       } catch {
-        // Ignore
+        // Skip
       }
     }
   }

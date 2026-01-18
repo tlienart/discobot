@@ -1,10 +1,18 @@
-.PHONY: run test lint format clean clean-bot ci
+.PHONY: run test lint format clean install-bun
 
-# Binary path for bun
+# Try to find bun in PATH or default install location
 BUN := $(shell which bun 2>/dev/null || echo $(HOME)/.bun/bin/bun)
 
-run:
-	$(BUN) index.ts
+run: install-bun
+	@$(BUN) install
+	@$(BUN) index.ts
+
+install-bun:
+	@if ! command -v $(BUN) >/dev/null 2>&1; then \
+		echo "Bun not found. Installing Bun..."; \
+		curl -fsSL https://bun.sh/install | bash; \
+		echo "Bun installed successfully."; \
+	fi
 
 test:
 	$(BUN) test
@@ -21,6 +29,3 @@ clean:
 # Surgically kill only bot-managed sessions
 clean-bot:
 	pgrep -f "ses_" | xargs kill -9 || true
-
-# Single source of truth for CI readiness
-ci: format lint test
