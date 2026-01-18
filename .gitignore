@@ -1,0 +1,34 @@
+# Dependency directories
+node_modules/
+
+# Local environment files
+.env
+.env.example
+
+# Runtime state and logs
+logs/
+sessions.json
+sessions.test.json
+
+# Ignore all JSON data files, but keep project config
+*.json
+!package.json
+!tsconfig.json
+
+# Exclude internal planning and documentation
+TASKS_*.md
+PLAN.md
+DOC_DISCORD_SETUP.md
+DEBUG_PLAN.md
+FUTURE_STEPS.md
+AGENTS.md
+TESTING_PROTOCOL.md
+
+# Exclude diagnostic and temporary scripts
+capture.ts
+test-*.ts
+!src/**/*.test.ts
+!index.test.ts
+
+# OS specific files
+.DS_Store
