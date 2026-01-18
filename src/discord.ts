@@ -15,7 +15,7 @@ import {
 import { readFileSync, existsSync } from 'fs';
 import dotenv from 'dotenv';
 import { SessionManager } from './sessions';
-import { OpenCodeProcess, OneShotOpenCodeProcess } from './opencode';
+import { OpenCodeProcess, OneShotOpenCodeProcess, type OpenCodeEvent } from './opencode';
 import { type Agent } from './agent';
 
 dotenv.config();
@@ -93,8 +93,8 @@ export class DiscordClient {
 
           try {
             let parentId = this.sessionManager.getCategoryId();
-            if (!parentId) {
-              const currentChannel = await guild?.channels.fetch(channelId);
+            if (!parentId && guild) {
+              const currentChannel = await guild.channels.fetch(channelId);
               if (currentChannel && 'parentId' in currentChannel && currentChannel.parentId) {
                 parentId = currentChannel.parentId;
               }
@@ -137,8 +137,8 @@ export class DiscordClient {
 
           try {
             let parentId = this.sessionManager.getCategoryId();
-            if (!parentId) {
-              const currentChannel = await guild?.channels.fetch(channelId);
+            if (!parentId && guild) {
+              const currentChannel = await guild.channels.fetch(channelId);
               if (currentChannel && 'parentId' in currentChannel && currentChannel.parentId) {
                 parentId = currentChannel.parentId;
               }
@@ -205,10 +205,10 @@ export class DiscordClient {
                 content: content || 'Log files are empty.',
                 flags: [MessageFlags.Ephemeral]
               });
-            } catch (_error: unknown) {
-              const err = _error as Error;
+            } catch (err: unknown) {
+              const e = err as Error;
               await interaction.reply({
-                content: `Failed to read logs: ${err.message}`,
+                content: `Failed to read logs: ${e.message}`,
                 flags: [MessageFlags.Ephemeral]
               });
             }
@@ -242,7 +242,6 @@ export class DiscordClient {
           });
           break;
         }
-
       }
     });
 

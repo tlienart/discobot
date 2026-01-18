@@ -1,4 +1,4 @@
-import { expect, test, describe, spyOn, afterAll } from 'bun:test';
+import { expect, test, describe, spyOn, afterAll, beforeEach } from 'bun:test';
 import { SessionManager } from './sessions';
 import { OpenCodeProcess } from './opencode';
 import { MockProcess } from './mock';
@@ -7,6 +7,10 @@ import { unlinkSync, existsSync } from 'fs';
 const TEST_DB = 'sessions.test.json';
 
 describe('SessionManager', () => {
+  beforeEach(() => {
+    if (existsSync(TEST_DB)) unlinkSync(TEST_DB);
+  });
+
   afterAll(() => {
     if (existsSync(TEST_DB)) unlinkSync(TEST_DB);
   });
@@ -43,7 +47,6 @@ describe('SessionManager', () => {
   });
 
   test('should persist and load sessions', async () => {
-    if (existsSync(TEST_DB)) unlinkSync(TEST_DB);
     const sm1 = new SessionManager(TEST_DB);
     sm1.prepareSession('chan-1', 'ses_test-1');
     sm1.setCategoryId('cat-123');

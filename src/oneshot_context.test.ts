@@ -1,6 +1,6 @@
 import { expect, test, describe, mock, spyOn, beforeEach } from 'bun:test';
 import { DiscordClient } from './discord';
-import { ChannelType, type TextChannel } from 'discord.js';
+import { ChannelType, type TextChannel, type Message } from 'discord.js';
 import { EventEmitter } from 'events';
 import * as opencode from './opencode';
 import { existsSync, unlinkSync } from 'fs';
@@ -15,13 +15,17 @@ describe('One-Shot Context Persistence', () => {
     process.env.DISCORD_GUILD_ID = 'test-guild-id';
     process.env.SESSION_DB = 'oneshot_context.test.json';
 
+    if (existsSync('oneshot_context.test.json')) {
+      unlinkSync('oneshot_context.test.json');
+    }
+
     mockChannel = new EventEmitter();
-    // @ts-expect-error: mocking
-    mockChannel.id = 'channel-oneshot';
-    // @ts-expect-error: mocking
-    mockChannel.send = mock(async () => ({}));
-    // @ts-expect-error: mocking
-    mockChannel.type = ChannelType.GuildText;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (mockChannel as any).id = 'channel-oneshot';
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (mockChannel as any).send = mock(async () => ({}));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (mockChannel as any).type = ChannelType.GuildText;
 
     client = new DiscordClient();
   });
@@ -38,8 +42,8 @@ describe('One-Shot Context Persistence', () => {
     const capturedSessionIds: string[] = [];
     const startSpy = spyOn(opencode.OneShotOpenCodeProcess.prototype, 'start').mockImplementation(
       async function (this: opencode.OneShotOpenCodeProcess) {
-        // @ts-expect-error: accessing private for test
-        capturedSessionIds.push(this.sessionId);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        capturedSessionIds.push((this as any).sessionId);
         return Promise.resolve();
       },
     );
@@ -52,10 +56,10 @@ describe('One-Shot Context Persistence', () => {
       react: mock(async () => ({})),
       channel: mockChannel as unknown as TextChannel,
       reply: mock(async () => ({})),
-    };
+    } as unknown as Message;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (discordClient.emit as any)('messageCreate', mockMessage1 as any);
+    await discordClient.emit('messageCreate', mockMessage1 as any);
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     // Check if start was called
@@ -70,10 +74,10 @@ describe('One-Shot Context Persistence', () => {
       react: mock(async () => ({})),
       channel: mockChannel as unknown as TextChannel,
       reply: mock(async () => ({})),
-    };
+    } as unknown as Message;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (discordClient.emit as any)('messageCreate', mockMessage2 as any);
+    await discordClient.emit('messageCreate', mockMessage2 as any);
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(startSpy).toHaveBeenCalledTimes(2);

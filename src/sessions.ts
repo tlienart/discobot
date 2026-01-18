@@ -57,6 +57,7 @@ export class SessionManager {
   }
 
   generateBotSessionId(): string {
+    // Strictly must start with 'ses' for OpenCode Zod validation
     return `ses_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   }
 
@@ -80,13 +81,10 @@ export class SessionManager {
   }
 
   prepareSession(channelId: string, sessionId?: string): Agent {
-    const sid = sessionId ? this.ensurePrefix(sessionId) : undefined;
+    const sid = sessionId ? this.ensurePrefix(sessionId) : this.generateBotSessionId();
     const session = new OpenCodeProcess(sid);
     this.sessions.set(channelId, session);
-    
-    if (sid) {
-      this.channelToSession.set(channelId, sid);
-    }
+    this.channelToSession.set(channelId, sid);
     this.channelToType.set(channelId, 'persistent');
     this.savePersistence();
     
@@ -95,13 +93,10 @@ export class SessionManager {
   }
 
   prepareOneShotSession(channelId: string, sessionId?: string): Agent {
-    const sid = sessionId ? this.ensurePrefix(sessionId) : undefined;
+    const sid = sessionId ? this.ensurePrefix(sessionId) : this.generateBotSessionId();
     const session = new OneShotOpenCodeProcess(sid);
     this.sessions.set(channelId, session);
-
-    if (sid) {
-      this.channelToSession.set(channelId, sid);
-    }
+    this.channelToSession.set(channelId, sid);
     this.channelToType.set(channelId, 'oneshot');
     this.savePersistence();
 

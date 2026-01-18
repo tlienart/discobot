@@ -281,11 +281,11 @@ export class OpenCodeProcess extends EventEmitter implements Agent {
         this.emit('exit', code);
         this.emit('thinking', false);
       });
-    } catch (_error) {
-      console.error('[OpenCode] Failed to spawn process:', _error);
+    } catch (error) {
+      console.error('[OpenCode] Failed to spawn process:', error);
       this.stopHeartbeat();
-      this.emit('error', _error);
-      throw _error;
+      this.emit('error', error);
+      throw error;
     }
   }
 
@@ -337,7 +337,7 @@ export class OpenCodeProcess extends EventEmitter implements Agent {
           }
 
           const bufferSize = stats.size - this.currentOffset;
-          const readBuffer = Buffer.allocUnsafe(bufferSize);
+          const readBuffer = Buffer.alloc(bufferSize);
           readSync(this.stdoutFd, readBuffer, 0, bufferSize, this.currentOffset);
           
           this.currentOffset = stats.size;
@@ -358,7 +358,7 @@ export class OpenCodeProcess extends EventEmitter implements Agent {
           }
         }
       }
-    } catch (_error) {
+    } catch {
       // Ignore
     }
   }
@@ -390,7 +390,7 @@ export class OpenCodeProcess extends EventEmitter implements Agent {
           console.log(`[OpenCode Event] type=${event.type} sessionID=${event.sessionID || event.part?.sessionID || 'unknown'}`);
           this.emit('event', event);
           this.processEvent(event);
-        } catch (_e) {
+        } catch {
           // Skip partials
         }
         startIndex = this.buffer.indexOf('{');

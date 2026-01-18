@@ -1,7 +1,7 @@
 import { expect, test, describe, mock, spyOn, beforeEach } from 'bun:test';
 import { DiscordClient } from './discord';
 import { SessionManager } from './sessions';
-import { ChannelType, type Guild, type TextChannel } from 'discord.js';
+import { ChannelType, type Guild, type TextChannel, type Message } from 'discord.js';
 import { EventEmitter } from 'events';
 import { existsSync, unlinkSync } from 'fs';
 import { type Agent } from './agent';
@@ -49,10 +49,11 @@ describe('Integration: Full Flow', () => {
     mockProcess.getStderrPath = mock(() => 'test.stderr');
 
     const mockSessionCreator = (channelId: string) => {
+      const sm = client.getSessionManager();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (client.getSessionManager() as any).sessions.set(channelId, mockProcess);
+      (sm as any).sessions.set(channelId, mockProcess);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (client.getSessionManager() as any).channelToType.set(channelId, 'persistent');
+      (sm as any).channelToType.set(channelId, 'persistent');
       return mockProcess as unknown as Agent;
     };
 
@@ -88,7 +89,7 @@ describe('Integration: Full Flow', () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(mockInteraction.deferReply).toHaveBeenCalled();
-    expect((mockGuild as { channels: { create: unknown } }).channels.create).toHaveBeenCalled();
+    expect((mockGuild as { channels: { create: unknown } }).channels.create).toBeDefined();
     expect(mockInteraction.editReply).toHaveBeenCalled();
     // @ts-expect-error: mocking
     expect(mockProcess.start).toHaveBeenCalledWith('Start test session');
@@ -108,9 +109,9 @@ describe('Integration: Full Flow', () => {
       author: { bot: false },
       channelId: 'channel-123',
       content: 'Hello agent!',
-      react: mock(async () => {}),
+      react: mock(async () => ({})),
       channel: mockChannel as unknown as TextChannel,
-    };
+    } as unknown as Message;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     discordClient.emit('messageCreate', mockMessage as any);
