@@ -54,7 +54,7 @@ describe('One-Shot Context Persistence', () => {
 
     // @ts-expect-error: mocking
     discordClient.emit('messageCreate', mockMessage1 as unknown as Message);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 200));
 
     // Check if start was called
     expect(startSpy).toHaveBeenCalledTimes(1);
@@ -72,7 +72,7 @@ describe('One-Shot Context Persistence', () => {
 
     // @ts-expect-error: mocking
     discordClient.emit('messageCreate', mockMessage2 as unknown as Message);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 200));
 
     expect(startSpy).toHaveBeenCalledTimes(2);
     expect(capturedSessionIds[1]).toBe(stableSid);

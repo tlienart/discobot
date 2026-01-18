@@ -1,15 +1,24 @@
-import { expect, test, describe, mock, spyOn, beforeEach, afterAll } from 'bun:test';
+import { expect, test, describe, mock, spyOn, beforeEach, afterAll, afterEach } from 'bun:test';
 import { DiscordClient } from './discord';
 import { ChannelType } from 'discord.js';
 import { SessionManager } from './sessions';
 import { OpenCodeProcess } from './opencode';
 import { unlinkSync, existsSync, writeFileSync } from 'fs';
 
-const TEST_DB = 'sessions.test.json';
+const TEST_DB = 'discord_test_sessions.json';
 
 describe('DiscordClient', () => {
   afterAll(() => {
     if (existsSync(TEST_DB)) unlinkSyncUnconditionally(TEST_DB);
+  });
+
+  afterEach(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (SessionManager.prototype.prepareSession as any).mockRestore?.();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (OpenCodeProcess.prototype.start as any).mockRestore?.();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (SessionManager.prototype.getSession as any).mockRestore?.();
   });
 
   function unlinkSyncUnconditionally(path: string) {
@@ -21,6 +30,7 @@ describe('DiscordClient', () => {
     process.env.DISCORD_CLIENT_ID = 'test-client-id';
     process.env.DISCORD_GUILD_ID = 'test-guild-id';
     process.env.SESSION_DB = TEST_DB;
+    if (existsSync(TEST_DB)) unlinkSync(TEST_DB);
   });
 
   test('should skip recovery for invalid Snowflake IDs', async () => {

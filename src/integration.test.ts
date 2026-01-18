@@ -69,6 +69,10 @@ describe('Integration: Full Flow', () => {
   });
 
   afterEach(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (SessionManager.prototype.prepareSession as any).mockRestore?.();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (SessionManager.prototype.prepareOneShotSession as any).mockRestore?.();
     if (existsSync('integration.test.json')) {
       unlinkSync('integration.test.json');
     }

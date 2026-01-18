@@ -1,13 +1,17 @@
-import { expect, test, describe, spyOn, afterAll } from 'bun:test';
+import { expect, test, describe, spyOn, afterAll, beforeEach } from 'bun:test';
 import { SessionManager } from './sessions';
 import { OpenCodeProcess } from './opencode';
 import { MockProcess } from './mock';
 import { unlinkSync, existsSync } from 'fs';
 
-const TEST_DB = 'sessions.test.json';
+const TEST_DB = 'sessions_unit_test.json';
 
 describe('SessionManager', () => {
   afterAll(() => {
+    if (existsSync(TEST_DB)) unlinkSync(TEST_DB);
+  });
+
+  beforeEach(() => {
     if (existsSync(TEST_DB)) unlinkSync(TEST_DB);
   });
 
