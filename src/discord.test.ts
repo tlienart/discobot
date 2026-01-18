@@ -5,7 +5,7 @@ import { SessionManager } from './sessions';
 import { OpenCodeProcess } from './opencode';
 import { unlinkSync, existsSync, writeFileSync } from 'fs';
 
-const TEST_DB = 'sessions_discord_final.test.json';
+const TEST_DB = 'sessions_discord_final_v3.test.json';
 
 describe('DiscordClient', () => {
   afterAll(() => {
@@ -55,7 +55,7 @@ describe('DiscordClient', () => {
       commandName: 'setup',
       options: {
         getChannel: () => ({
-          id: '123456789',
+          id: '123456789012345678',
           name: 'Sessions',
           type: ChannelType.GuildCategory,
         }),
@@ -67,7 +67,7 @@ describe('DiscordClient', () => {
     client.getClient().emit('interactionCreate', mockInteraction as unknown as any);
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    expect(client.getCategoryId()).toBe('123456789');
+    expect(client.getCategoryId()).toBe('123456789012345678');
     expect(mockInteraction.reply).toHaveBeenCalled();
   });
 
@@ -100,7 +100,7 @@ describe('DiscordClient', () => {
       },
       deferReply: mock(async () => ({})),
       editReply: mock(async () => ({})),
-      channelId: 'cmd-channel',
+      channelId: '123456789012345678',
     } as unknown as ChatInputCommandInteraction;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

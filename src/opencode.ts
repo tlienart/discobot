@@ -90,11 +90,11 @@ export class OneShotOpenCodeProcess extends EventEmitter implements Agent {
       this.stopHeartbeat();
 
       this.emit('exit', code);
-    } catch (error) {
-      console.error('[OneShot] Failed to spawn:', error);
+    } catch (_error) {
+      console.error('[OneShot] Failed to spawn:', _error);
       this.stopHeartbeat();
-      this.emit('error', error);
-      throw error;
+      this.emit('error', _error);
+      throw _error;
     }
   }
 
@@ -297,11 +297,11 @@ export class OpenCodeProcess extends EventEmitter implements Agent {
         this.emit('exit', code);
         this.emit('thinking', false);
       });
-    } catch (error) {
-      console.error('[OpenCode] Failed to spawn process:', error);
+    } catch (_error) {
+      console.error('[OpenCode] Failed to spawn process:', _error);
       this.stopHeartbeat();
-      this.emit('error', error);
-      throw error;
+      this.emit('error', _error);
+      throw _error;
     }
   }
 

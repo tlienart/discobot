@@ -15,7 +15,7 @@ import {
 import { readFileSync, existsSync } from 'fs';
 import dotenv from 'dotenv';
 import { SessionManager } from './sessions';
-import { OpenCodeProcess, OneShotOpenCodeProcess, type OpenCodeEvent } from './opencode';
+import { OpenCodeProcess, OneShotOpenCodeProcess } from './opencode';
 import { type Agent } from './agent';
 
 dotenv.config();

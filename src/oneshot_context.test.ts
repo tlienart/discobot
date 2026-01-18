@@ -1,35 +1,42 @@
-import { expect, test, describe, mock, spyOn, beforeEach } from 'bun:test';
+import { expect, test, describe, mock, spyOn, beforeEach, afterEach } from 'bun:test';
 import { DiscordClient } from './discord';
 import { ChannelType, type TextChannel, type Message } from 'discord.js';
 import { EventEmitter } from 'events';
 import * as opencode from './opencode';
 import { existsSync, unlinkSync } from 'fs';
 
-const TEST_DB = 'oneshot_context_final_v3.test.json';
-
 describe('One-Shot Context Persistence', () => {
   let client: DiscordClient;
   let mockChannel: EventEmitter;
+  let startSpy: unknown;
 
   beforeEach(() => {
     process.env.DISCORD_TOKEN = 'test-token';
     process.env.DISCORD_CLIENT_ID = 'test-client-id';
     process.env.DISCORD_GUILD_ID = 'test-guild-id';
-    process.env.SESSION_DB = TEST_DB;
+    process.env.SESSION_DB = 'oneshot_context_final_v3.test.json';
 
-    if (existsSync(TEST_DB)) {
-      unlinkSync(TEST_DB);
+    if (existsSync('oneshot_context_final_v3.test.json')) {
+      unlinkSync('oneshot_context_final_v3.test.json');
     }
 
     mockChannel = new EventEmitter();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (mockChannel as any).id = 'channel-oneshot';
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (mockChannel as any).send = mock(async () => ({}));
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (mockChannel as any).type = ChannelType.GuildText;
+    // @ts-expect-error: mocking
+    mockChannel.id = 'channel-oneshot';
+    // @ts-expect-error: mocking
+    mockChannel.send = mock(async () => ({}));
+    // @ts-expect-error: mocking
+    mockChannel.type = ChannelType.GuildText;
 
     client = new DiscordClient();
+  });
+
+  afterEach(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (startSpy) (startSpy as any).mockRestore();
+    if (existsSync('oneshot_context_final_v3.test.json')) {
+      unlinkSync('oneshot_context_final_v3.test.json');
+    }
   });
 
   test('should reuse stable sessionId for multiple oneshot messages', async () => {
@@ -42,7 +49,7 @@ describe('One-Shot Context Persistence', () => {
     const capturedSessionIds: string[] = [];
     let resolveTurn: (() => void) | null = null;
 
-    const startSpy = spyOn(opencode.OneShotOpenCodeProcess.prototype, 'start').mockImplementation(
+    startSpy = spyOn(opencode.OneShotOpenCodeProcess.prototype, 'start').mockImplementation(
       async function (this: opencode.OneShotOpenCodeProcess) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         capturedSessionIds.push((this as any).sessionId);
@@ -67,10 +74,10 @@ describe('One-Shot Context Persistence', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     discordClient.emit('messageCreate' as any, mockMessage1 as any);
     await turn1Promise;
-    // Tiny delay to let the 'finally' block in discord.ts run and clear channelBusy
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
-    expect(startSpy).toHaveBeenCalledTimes(1);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(startSpy as any).toHaveBeenCalledTimes(1);
     expect(capturedSessionIds[0]).toBe(stableSid);
 
     // Turn 2
@@ -89,14 +96,13 @@ describe('One-Shot Context Persistence', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     discordClient.emit('messageCreate' as any, mockMessage2 as any);
     await turn2Promise;
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
-    expect(startSpy).toHaveBeenCalledTimes(2);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(startSpy as any).toHaveBeenCalledTimes(2);
     expect(capturedSessionIds[1]).toBe(stableSid);
 
-    startSpy.mockRestore();
-    if (existsSync(TEST_DB)) {
-      unlinkSync(TEST_DB);
-    }
+    expect(mockMessage1.react).toHaveBeenCalledWith('📥');
+    expect(mockMessage2.react).toHaveBeenCalledWith('📥');
   });
 });

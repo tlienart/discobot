@@ -1,4 +1,4 @@
-import { expect, test, describe, mock, spyOn, beforeEach } from 'bun:test';
+import { expect, test, describe, mock, spyOn, beforeEach, afterEach } from 'bun:test';
 import { DiscordClient } from './discord';
 import { SessionManager } from './sessions';
 import { ChannelType, type Guild, type TextChannel, type Message } from 'discord.js';
@@ -11,6 +11,8 @@ describe('Integration: Full Flow', () => {
   let mockGuild: unknown;
   let mockChannel: EventEmitter;
   let mockProcess: EventEmitter;
+  let prepareSpy: unknown;
+  let prepareOneShotSpy: unknown;
 
   beforeEach(() => {
     process.env.DISCORD_TOKEN = 'test-token';
@@ -57,11 +59,25 @@ describe('Integration: Full Flow', () => {
       return mockProcess as unknown as Agent;
     };
 
-    spyOn(SessionManager.prototype, 'prepareSession').mockImplementation(mockSessionCreator);
-    spyOn(SessionManager.prototype, 'prepareOneShotSession').mockImplementation(mockSessionCreator);
+    prepareSpy = spyOn(SessionManager.prototype, 'prepareSession').mockImplementation(
+      mockSessionCreator,
+    );
+    prepareOneShotSpy = spyOn(SessionManager.prototype, 'prepareOneShotSession').mockImplementation(
+      mockSessionCreator,
+    );
 
     client = new DiscordClient();
     client.getSessionManager().setCategoryId('cat-123');
+  });
+
+  afterEach(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (prepareSpy) (prepareSpy as any).mockRestore();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (prepareOneShotSpy) (prepareOneShotSpy as any).mockRestore();
+    if (existsSync('integration.test.json')) {
+      unlinkSync('integration.test.json');
+    }
   });
 
   test('should handle new session, relay output, and inject input', async () => {
@@ -118,9 +134,5 @@ describe('Integration: Full Flow', () => {
     // @ts-expect-error: mocking
     expect(mockProcess.sendInput).toHaveBeenCalledWith('Hello agent!');
     expect(mockMessage.react).toHaveBeenCalledWith('📥');
-
-    if (existsSync('integration.test.json')) {
-      unlinkSync('integration.test.json');
-    }
   });
 });
