@@ -170,33 +170,16 @@ export class OneShotOpenCodeProcess extends EventEmitter implements Agent {
 
   private handleChunk(chunk: string) {
     this.buffer += chunk;
-    let startIndex = this.buffer.indexOf('{');
-    while (startIndex !== -1) {
-      let braceCount = 0;
-      let foundEnd = false;
-      let i = startIndex;
-      for (; i < this.buffer.length; i++) {
-        if (this.buffer[i] === '{') braceCount++;
-        else if (this.buffer[i] === '}') {
-          braceCount--;
-          if (braceCount === 0) {
-            foundEnd = true;
-            break;
-          }
-        }
-      }
-      if (foundEnd) {
-        const jsonStr = this.buffer.substring(startIndex, i + 1);
-        this.buffer = this.buffer.substring(i + 1);
-        try {
-          const event: OpenCodeEvent = JSON.parse(jsonStr);
-          this.processEvent(event);
-        } catch {
-          // Ignore parse errors
-        }
-        startIndex = this.buffer.indexOf('{');
-      } else {
-        break;
+    const lines = this.buffer.split('\n');
+    this.buffer = lines.pop() || ''; // Keep the last partial line
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const event: OpenCodeEvent = JSON.parse(line);
+        this.processEvent(event);
+      } catch {
+        // Ignore parse errors for non-JSON lines
       }
     }
   }
@@ -211,6 +194,8 @@ export class OneShotOpenCodeProcess extends EventEmitter implements Agent {
     } else if (event.type === 'step_finish') {
       this.emit('thinking', false);
       if (event.part?.reason === 'stop') this.emit('idle');
+    } else if (event.type === 'tool_use') {
+      // Thinking indicator is handled by step_start, so we don't need a separate message
     }
   }
 
@@ -381,39 +366,20 @@ export class OpenCodeProcess extends EventEmitter implements Agent {
 
   private handleChunk(chunk: string) {
     this.buffer += chunk;
-    let startIndex = this.buffer.indexOf('{');
-    while (startIndex !== -1) {
-      let braceCount = 0;
-      let foundEnd = false;
-      let i = startIndex;
+    const lines = this.buffer.split('\n');
+    this.buffer = lines.pop() || '';
 
-      for (; i < this.buffer.length; i++) {
-        if (this.buffer[i] === '{') braceCount++;
-        else if (this.buffer[i] === '}') {
-          braceCount--;
-          if (braceCount === 0) {
-            foundEnd = true;
-            break;
-          }
-        }
-      }
-
-      if (foundEnd) {
-        const jsonStr = this.buffer.substring(startIndex, i + 1);
-        this.buffer = this.buffer.substring(i + 1);
-        try {
-          const event: OpenCodeEvent = JSON.parse(jsonStr);
-          console.log(
-            `[OpenCode Event] type=${event.type} sessionID=${event.sessionID || event.part?.sessionID || 'unknown'}`,
-          );
-          this.emit('event', event);
-          this.processEvent(event);
-        } catch {
-          // Skip partials
-        }
-        startIndex = this.buffer.indexOf('{');
-      } else {
-        break;
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const event: OpenCodeEvent = JSON.parse(line);
+        console.log(
+          `[OpenCode Event] type=${event.type} sessionID=${event.sessionID || event.part?.sessionID || 'unknown'}`,
+        );
+        this.emit('event', event);
+        this.processEvent(event);
+      } catch {
+        // Skip partials or non-JSON
       }
     }
   }
@@ -437,7 +403,7 @@ export class OpenCodeProcess extends EventEmitter implements Agent {
         break;
       }
       case 'tool_use':
-        this.emit('output', '🛠️ **Using tool...**');
+        // Thinking indicator handled by step_start
         break;
     }
   }

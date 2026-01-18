@@ -112,6 +112,8 @@ describe('Integration: Full Flow', () => {
 
     // 2. Simulate opencode output
     mockProcess.emit('output', 'Hello from OpenCode!');
+    mockProcess.emit('idle');
+    await new Promise((resolve) => setTimeout(resolve, 50));
     // @ts-expect-error: mocking
     expect(mockChannel.send).toHaveBeenCalledWith('Hello from OpenCode!');
 

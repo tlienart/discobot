@@ -31,6 +31,43 @@ describe('OpenCodeProcess', () => {
     expect(thinking).toBe(false);
     expect(idle).toBe(true);
   });
+
+  test('should handle JSON with braces in strings', () => {
+    const op = new OpenCodeProcess('test-braces');
+    let output = '';
+    op.on('output', (val) => (output += val));
+
+    const problematicJson = JSON.stringify({
+      type: 'text',
+      part: {
+        type: 'text',
+        text: 'Some code: if (true) { return 1; }',
+      },
+    });
+
+    // @ts-expect-error: accessing private method for testing
+    op.handleChunk(problematicJson + '\n');
+    expect(output).toBe('Some code: if (true) { return 1; }');
+  });
+
+  test('should handle very long text output', () => {
+    const op = new OpenCodeProcess('test-long');
+    let output = '';
+    op.on('output', (val) => (output += val));
+
+    const longText = 'A'.repeat(5000);
+    const event = JSON.stringify({
+      type: 'text',
+      part: {
+        type: 'text',
+        text: longText,
+      },
+    });
+
+    // @ts-expect-error: accessing private method for testing
+    op.handleChunk(event + '\n');
+    expect(output.length).toBe(5000);
+  });
 });
 
 describe('OneShotOpenCodeProcess', () => {

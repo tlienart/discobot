@@ -86,11 +86,13 @@ export class SessionManager {
   }
 
   prepareSession(channelId: string, sessionId?: string): Agent {
-    const sid = sessionId ? this.ensurePrefix(sessionId) : this.generateBotSessionId();
+    const sid = sessionId ? this.ensurePrefix(sessionId) : undefined;
     const session = new OpenCodeProcess(sid);
 
     this.sessions.set(channelId, session);
-    this.channelToSession.set(channelId, sid);
+    if (sid) {
+      this.channelToSession.set(channelId, sid);
+    }
     this.channelToType.set(channelId, 'persistent');
 
     this.savePersistence();
@@ -99,11 +101,13 @@ export class SessionManager {
   }
 
   prepareOneShotSession(channelId: string, sessionId?: string): Agent {
-    const sid = sessionId ? this.ensurePrefix(sessionId) : this.generateBotSessionId();
+    const sid = sessionId ? this.ensurePrefix(sessionId) : undefined;
     const session = new OneShotOpenCodeProcess(sid);
 
     this.sessions.set(channelId, session);
-    this.channelToSession.set(channelId, sid);
+    if (sid) {
+      this.channelToSession.set(channelId, sid);
+    }
     this.channelToType.set(channelId, 'oneshot');
 
     this.savePersistence();

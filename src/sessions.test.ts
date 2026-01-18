@@ -71,4 +71,20 @@ describe('SessionManager', () => {
     sm.prepareSession('c2', 'ses_already');
     expect(sm.getChannelMapping().get('c2')).toBe('ses_already');
   });
+
+  test('should not store session ID for fresh opencode sessions until captured', () => {
+    const sm = new SessionManager(TEST_DB);
+    sm.prepareSession('fresh-channel');
+    expect(sm.getChannelMapping().get('fresh-channel')).toBeUndefined();
+
+    sm.prepareOneShotSession('fresh-oneshot');
+    expect(sm.getChannelMapping().get('fresh-oneshot')).toBeUndefined();
+  });
+
+  test('should store session ID for mock sessions immediately', () => {
+    const sm = new SessionManager(TEST_DB);
+    sm.prepareMockSession('mock-channel');
+    expect(sm.getChannelMapping().get('mock-channel')).toBeDefined();
+    expect(sm.getChannelMapping().get('mock-channel')).toMatch(/^ses_/);
+  });
 });

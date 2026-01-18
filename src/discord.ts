@@ -33,6 +33,9 @@ export class DiscordClient {
   // Track if a channel is currently busy with a process
   private channelBusy: Set<string> = new Set();
 
+  private outputBuffers: Map<string, string> = new Map();
+  private summarizationInProgress: Set<string> = new Set();
+
   constructor() {
     this.token = process.env.DISCORD_TOKEN || '';
     this.clientId = process.env.DISCORD_CLIENT_ID || '';
@@ -296,16 +299,72 @@ export class DiscordClient {
     });
   }
 
+  private async sendLongMessage(channel: TextChannel, content: string) {
+    if (content.length <= 2000) {
+      await channel.send(content).catch(console.error);
+      return;
+    }
+
+    const chunks = [];
+    let current = content;
+    while (current.length > 0) {
+      chunks.push(current.slice(0, 1900));
+      current = current.slice(1900);
+    }
+
+    for (const chunk of chunks) {
+      await channel.send(chunk).catch(console.error);
+    }
+  }
+
+  private async handleTurnEnd(channel: TextChannel, session: Agent) {
+    const buffer = this.outputBuffers.get(channel.id) || '';
+    if (!buffer) return;
+
+    this.outputBuffers.set(channel.id, ''); // Clear for next turn
+
+    if (buffer.length > 2000 && !this.summarizationInProgress.has(channel.id)) {
+      await channel.send('⚠️ **Response is too long (>2000 chars). Requesting a summary...**');
+      this.summarizationInProgress.add(channel.id);
+
+      const summaryPrompt =
+        'The previous answer was too long for the user interface. Please provide a concise summary of that answer (keeping the most important parts) and ensure the summary is under 2000 characters.';
+
+      try {
+        const mode = this.sessionManager.getSessionType(channel.id);
+        const stableSid = this.sessionManager.getChannelMapping().get(channel.id);
+
+        if (mode === 'oneshot') {
+          const freshSession = new OneShotOpenCodeProcess(stableSid);
+          this.attachSessionListeners(freshSession, channel);
+          this.channelBusy.add(channel.id);
+          await freshSession.start(summaryPrompt);
+          this.channelBusy.delete(channel.id);
+        } else {
+          session.sendInput(summaryPrompt);
+        }
+      } catch (err) {
+        console.error('[Discord] Summarization failed:', err);
+        this.summarizationInProgress.delete(channel.id);
+        await this.sendLongMessage(channel, buffer); // Fallback to chunked
+      }
+    } else {
+      this.summarizationInProgress.delete(channel.id);
+      await this.sendLongMessage(channel, buffer);
+    }
+  }
+
   private attachSessionListeners(session: Agent, channel: TextChannel) {
     let firstOutput = true;
+    this.outputBuffers.set(channel.id, '');
 
     session.on('output', (text: string) => {
       if (firstOutput) {
         console.log(`[Discord] First output received for channel ${channel.id}`);
         firstOutput = false;
       }
-      console.log(`[Discord] Sending output to channel ${channel.id}`);
-      channel.send(text).catch(console.error);
+      const currentBuffer = this.outputBuffers.get(channel.id) || '';
+      this.outputBuffers.set(channel.id, currentBuffer + text);
     });
 
     session.on('thinking', (isThinking: boolean) => {
@@ -349,7 +408,8 @@ export class DiscordClient {
       });
     }
 
-    session.on('idle', () => {
+    session.on('idle', async () => {
+      await this.handleTurnEnd(channel, session);
       channel.send('✅ **Ready for input**').catch(console.error);
     });
 
@@ -365,6 +425,7 @@ export class DiscordClient {
     });
 
     session.on('exit', async (code: number) => {
+      await this.handleTurnEnd(channel, session);
       if (code !== 0 && code !== null) {
         channel.send(`⚠️ **Process exited with code ${code}**`).catch(console.error);
 
