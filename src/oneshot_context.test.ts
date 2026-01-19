@@ -1,6 +1,6 @@
 import { expect, test, describe, mock, spyOn, beforeEach } from 'bun:test';
 import { DiscordClient } from './discord';
-import { ChannelType, type Message, type TextChannel } from 'discord.js';
+import { ChannelType, type Message } from 'discord.js';
 import { EventEmitter } from 'events';
 import * as opencode from './opencode';
 import { existsSync, unlinkSync } from 'fs';
@@ -15,11 +15,18 @@ describe('One-Shot Context Persistence', () => {
     process.env.DISCORD_GUILD_ID = 'test-guild-id';
     process.env.SESSION_DB = 'oneshot_context.test.json';
 
-    // @ts-expect-error: mocking
-    mockChannel = new EventEmitter();
-    mockChannel.id = 'channel-oneshot';
-    mockChannel.send = mock(async () => ({}));
-    mockChannel.type = ChannelType.GuildText;
+    const channel = new EventEmitter();
+    // @ts-expect-error - mock setup
+    channel.id = 'channel-oneshot';
+    // @ts-expect-error - mock setup
+    channel.send = mock(async () => ({}));
+    // @ts-expect-error - mock setup
+    channel.type = ChannelType.GuildText;
+    mockChannel = channel as unknown as EventEmitter & {
+      id: string;
+      send: ReturnType<typeof mock>;
+      type: ChannelType;
+    };
 
     client = new DiscordClient();
   });
@@ -28,16 +35,16 @@ describe('One-Shot Context Persistence', () => {
     const discordClient = client.getClient();
     const sessionManager = client.getSessionManager();
 
-    // 1. Manually prepare a oneshot session for a channel
+    // 1. Manually prepare a session for a channel
     const stableSid = 'ses_oneshot_stable_123';
-    sessionManager.prepareOneShotSession('channel-oneshot', stableSid);
+    sessionManager.prepareSession('channel-oneshot', stableSid);
 
-    // 2. Spy on OneShotOpenCodeProcess constructor or start method
-    const capturedSessionIds: (string | undefined)[] = [];
-    const startSpy = spyOn(opencode.OneShotOpenCodeProcess.prototype, 'start').mockImplementation(
-      async function (this: opencode.OneShotOpenCodeProcess) {
-        // @ts-expect-error: accessing private sessionId
-        capturedSessionIds.push(this.sessionId);
+    // 2. Spy on OpenCodeAgent start method
+    const capturedSessionIds: string[] = [];
+    const startSpy = spyOn(opencode.OpenCodeAgent.prototype, 'start').mockImplementation(
+      async function (this: unknown) {
+        const self = this as { sessionId?: string };
+        capturedSessionIds.push(self.sessionId || '');
         return Promise.resolve();
       },
     );
@@ -47,14 +54,14 @@ describe('One-Shot Context Persistence', () => {
       author: { bot: false },
       channelId: 'channel-oneshot',
       content: 'What time is it in Paris?',
-      react: mock(async () => ({})),
-      channel: mockChannel as unknown as TextChannel,
-      reply: mock(async () => ({})),
+      react: mock(async () => {}),
+      channel: mockChannel,
+      reply: mock(async () => {}),
     };
 
-    // @ts-expect-error: mocking
+    // @ts-expect-error - mock message emission
     discordClient.emit('messageCreate', mockMessage1 as unknown as Message);
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     // Check if start was called
     expect(startSpy).toHaveBeenCalledTimes(1);
@@ -65,14 +72,14 @@ describe('One-Shot Context Persistence', () => {
       author: { bot: false },
       channelId: 'channel-oneshot',
       content: 'and in Oslo?',
-      react: mock(async () => ({})),
-      channel: mockChannel as unknown as TextChannel,
-      reply: mock(async () => ({})),
+      react: mock(async () => {}),
+      channel: mockChannel,
+      reply: mock(async () => {}),
     };
 
-    // @ts-expect-error: mocking
+    // @ts-expect-error - mock message emission
     discordClient.emit('messageCreate', mockMessage2 as unknown as Message);
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(startSpy).toHaveBeenCalledTimes(2);
     expect(capturedSessionIds[1]).toBe(stableSid);

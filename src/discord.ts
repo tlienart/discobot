@@ -9,12 +9,15 @@ import {
   ChannelType,
   type Message,
   MessageFlags,
-  IntentsBitField,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ComponentType,
 } from 'discord.js';
 import { readFileSync, existsSync } from 'fs';
 import dotenv from 'dotenv';
 import { SessionManager } from './sessions';
-import { OpenCodeProcess, OneShotOpenCodeProcess } from './opencode';
+import { type OpenCodeEvent } from './opencode';
 import { type Agent } from './agent';
 
 dotenv.config();
@@ -68,16 +71,34 @@ export class DiscordClient {
           await interaction.reply('Pong!');
           break;
 
+        case 'setup': {
+          const category = options.getChannel('category');
+          if (category && category.type === ChannelType.GuildCategory) {
+            this.sessionManager.setCategoryId(category.id);
+            await interaction.reply({
+              content: `Successfully set session category to: **${category.name}** (${category.id})`,
+              flags: [MessageFlags.Ephemeral],
+            });
+          } else {
+            await interaction.reply({
+              content: 'Please provide a valid category.',
+              flags: [MessageFlags.Ephemeral],
+            });
+          }
+          break;
+        }
+
         case 'new': {
           const prompt = options.getString('prompt') || 'Hello! How can you help me today?';
-          const mode = options.getString('mode') || 'oneshot';
           await interaction.deferReply();
 
           try {
-            let parentId: string | null = null;
-            const currentChannel = await guild?.channels.fetch(channelId);
-            if (currentChannel && 'parentId' in currentChannel && currentChannel.parentId) {
-              parentId = currentChannel.parentId;
+            let parentId = this.sessionManager.getCategoryId();
+            if (!parentId) {
+              const currentChannel = await guild?.channels.fetch(channelId);
+              if (currentChannel && 'parentId' in currentChannel && currentChannel.parentId) {
+                parentId = currentChannel.parentId;
+              }
             }
 
             const channel = await guild?.channels.create({
@@ -87,18 +108,17 @@ export class DiscordClient {
             });
 
             if (channel) {
-              const session =
-                mode === 'oneshot'
-                  ? this.sessionManager.prepareOneShotSession(channel.id)
-                  : this.sessionManager.prepareSession(channel.id);
-
+              const session = this.sessionManager.prepareSession(channel.id);
               this.attachSessionListeners(session, channel as TextChannel);
 
-              await interaction.editReply(`Created new ${mode} session in ${channel}`);
+              const count = this.sessionManager.getNextSessionCount(channel.id);
+              await interaction.editReply(`Created new session in ${channel}`);
 
               // Mirror user prompt
               await (channel as TextChannel).send(`**User:** ${prompt}`);
-              await (channel as TextChannel).send(`🚀 **Agent (${mode}) is starting up...**`);
+              await (channel as TextChannel).send(
+                `🚀 **Agent is starting up... (Session #${count})**`,
+              );
 
               this.channelBusy.add(channel.id);
               session.start(prompt).finally(() => {
@@ -117,10 +137,12 @@ export class DiscordClient {
           await interaction.deferReply();
 
           try {
-            let parentId: string | null = null;
-            const currentChannel = await guild?.channels.fetch(channelId);
-            if (currentChannel && 'parentId' in currentChannel && currentChannel.parentId) {
-              parentId = currentChannel.parentId;
+            let parentId = this.sessionManager.getCategoryId();
+            if (!parentId) {
+              const currentChannel = await guild?.channels.fetch(channelId);
+              if (currentChannel && 'parentId' in currentChannel && currentChannel.parentId) {
+                parentId = currentChannel.parentId;
+              }
             }
 
             const channel = await guild?.channels.create({
@@ -151,12 +173,13 @@ export class DiscordClient {
 
         case 'interrupt': {
           const session = this.sessionManager.getSession(channelId);
-          if (session && session instanceof OpenCodeProcess) {
-            session.interrupt();
-            await interaction.reply('Interrupt signal sent!');
+          if (session) {
+            this.sessionManager.removeSession(channelId, true);
+            this.channelBusy.delete(channelId);
+            await interaction.reply('Current process killed!');
           } else {
             await interaction.reply({
-              content: 'Interrupt not supported for this session type',
+              content: 'No active session in this channel',
               flags: [MessageFlags.Ephemeral],
             });
           }
@@ -184,10 +207,10 @@ export class DiscordClient {
                 content: content || 'Log files are empty.',
                 flags: [MessageFlags.Ephemeral],
               });
-            } catch (err: unknown) {
-              const e = err as Error;
+            } catch (error: unknown) {
+              const errorMessage = error instanceof Error ? error.message : 'Unknown error';
               await interaction.reply({
-                content: `Failed to read logs: ${e.message}`,
+                content: `Failed to read logs: ${errorMessage}`,
                 flags: [MessageFlags.Ephemeral],
               });
             }
@@ -210,15 +233,130 @@ export class DiscordClient {
         }
 
         case 'debug': {
-          const intents = this.client.options.intents;
-          const msgContentIntent =
-            intents instanceof IntentsBitField
-              ? intents.has(GatewayIntentBits.MessageContent)
-              : false;
+          const msgContentIntent = this.client.options.intents.has(
+            GatewayIntentBits.MessageContent,
+          );
+          const categoryId = this.sessionManager.getCategoryId();
+
           await interaction.reply({
-            content: `**Debug Info:**\n- Message Content Intent: ${msgContentIntent ? '✅ Enabled' : '❌ Disabled'}\n- Active Sessions: ${this.sessionManager.getChannelMapping().size}`,
+            content: `**Debug Info:**\n- Message Content Intent: ${msgContentIntent ? '✅ Enabled' : '❌ Disabled'}\n- Active Sessions: ${this.sessionManager.getChannelMapping().size}\n- Category Set: ${categoryId ? '✅' : '❌'}`,
             flags: [MessageFlags.Ephemeral],
           });
+          break;
+        }
+
+        case 'restart': {
+          const session = this.sessionManager.getSession(channelId);
+          const type = this.sessionManager.getSessionType(channelId);
+
+          if (!session || !type) {
+            await interaction.reply({
+              content: 'No active session in this channel to restart.',
+              flags: [MessageFlags.Ephemeral],
+            });
+            return;
+          }
+
+          const confirm = new ButtonBuilder()
+            .setCustomId('confirm_restart')
+            .setLabel('Restart (Wipe History)')
+            .setStyle(ButtonStyle.Danger);
+
+          const cancel = new ButtonBuilder()
+            .setCustomId('cancel_restart')
+            .setLabel('Keep Session')
+            .setStyle(ButtonStyle.Secondary);
+
+          const row = new ActionRowBuilder<ButtonBuilder>().addComponents(cancel, confirm);
+
+          const response = await interaction.reply({
+            content: `⚠️ **Wipe conversation and start fresh?**\nThis will stop the current process and clear the memory for this channel.`,
+            components: [row],
+            flags: [MessageFlags.Ephemeral],
+          });
+
+          const collector = response.createMessageComponentCollector({
+            componentType: ComponentType.Button,
+            time: 30000,
+          });
+
+          collector.on('collect', async (i) => {
+            if (i.customId === 'confirm_restart') {
+              await i.update({
+                content: '🔄 Wiping history and starting fresh...',
+                components: [],
+              });
+
+              // Stop existing
+              this.sessionManager.removeSession(channelId);
+              this.channelBusy.delete(channelId);
+
+              // Start new
+              const count = this.sessionManager.getNextSessionCount(channelId);
+              let newSession: Agent;
+              if (type === 'mock') {
+                newSession = this.sessionManager.prepareMockSession(channelId);
+              } else {
+                newSession = this.sessionManager.prepareSession(channelId);
+              }
+
+              const channel = await this.client.channels.fetch(channelId);
+              if (channel && channel.type === ChannelType.GuildText) {
+                this.attachSessionListeners(newSession, channel as TextChannel);
+                await channel.send(`🚀 **Starting Fresh Session #${count}**`);
+
+                this.channelBusy.add(channelId);
+                newSession.start().finally(() => {
+                  this.channelBusy.delete(channelId);
+                });
+              }
+            } else {
+              await i.update({ content: 'Restart cancelled.', components: [] });
+            }
+          });
+          break;
+        }
+
+        case 'resume': {
+          const sessionId = options.getString('session_id');
+          if (!sessionId) {
+            await interaction.reply({
+              content: '❌ **Error**: Please provide a valid Session ID to resume.',
+              flags: [MessageFlags.Ephemeral],
+            });
+            return;
+          }
+
+          await interaction.deferReply();
+
+          try {
+            const existing = this.sessionManager.getSession(channelId);
+            if (existing) {
+              this.sessionManager.removeSession(channelId);
+              this.channelBusy.delete(channelId);
+            }
+
+            const session = this.sessionManager.prepareSession(channelId, sessionId);
+            this.attachSessionListeners(session, interaction.channel as TextChannel);
+
+            const count = this.sessionManager.getNextSessionCount(channelId);
+            const realId = (session as unknown as { sessionId?: string }).sessionId || sessionId;
+            const alias = this.sessionManager.getAliasForSession(realId);
+            const displayName = alias || sessionId.replace('ses_', '');
+
+            await interaction.editReply(`Resuming session \`${displayName}\` in this channel.`);
+            await (interaction.channel as TextChannel).send(
+              `🔄 **Re-attaching to session #${count}... (Context restored)**`,
+            );
+
+            this.channelBusy.add(channelId);
+            session.start().finally(() => {
+              this.channelBusy.delete(channelId);
+            });
+          } catch (error) {
+            console.error('[Discord] Failed to resume session:', error);
+            await interaction.editReply('Failed to resume session.');
+          }
           break;
         }
       }
@@ -228,7 +366,7 @@ export class DiscordClient {
       if (message.author.bot) return;
 
       const session = this.sessionManager.getSession(message.channelId);
-      const mode = this.sessionManager.getSessionType(message.channelId);
+      const type = this.sessionManager.getSessionType(message.channelId);
 
       if (session) {
         if (this.channelBusy.has(message.channelId)) {
@@ -241,30 +379,33 @@ export class DiscordClient {
         }
 
         console.log(
-          `[Discord] Message in session (${mode}) channel ${message.channelId}: ${message.content}`,
+          `[Discord] Message in session channel ${message.channelId}: ${message.content}`,
         );
         try {
-          if (mode === 'oneshot') {
-            await message.react('📥');
-            const stableSessionId = this.sessionManager.getChannelMapping().get(message.channelId);
+          await message.react('📥');
+          const stableSessionId = this.sessionManager.getChannelMapping().get(message.channelId);
 
-            // Mirror prompt
-            if (message.channel instanceof TextChannel) {
-              await message.channel.send(`**User:** ${message.content}`);
-            }
-
-            const freshSession = new OneShotOpenCodeProcess(stableSessionId);
-            this.attachSessionListeners(freshSession, message.channel as TextChannel);
-
-            this.channelBusy.add(message.channelId);
-            freshSession.start(message.content).finally(() => {
-              this.channelBusy.delete(message.channelId);
-            });
-          } else {
-            // For persistent/mock, we just send input
-            session.sendInput(message.content);
-            await message.react('📥');
+          // Mirror prompt
+          if (message.channel instanceof TextChannel) {
+            await message.channel.send(`**User:** ${message.content}`);
           }
+
+          let freshSession: Agent;
+          if (type === 'mock') {
+            freshSession = this.sessionManager.prepareMockSession(
+              message.channelId,
+              stableSessionId,
+            );
+          } else {
+            freshSession = this.sessionManager.prepareSession(message.channelId, stableSessionId);
+          }
+
+          this.attachSessionListeners(freshSession, message.channel as TextChannel);
+
+          this.channelBusy.add(message.channelId);
+          freshSession.start(message.content).finally(() => {
+            this.channelBusy.delete(message.channelId);
+          });
         } catch (error) {
           console.error('[Discord] Failed to handle message:', error);
           await message.react('❌');
@@ -275,6 +416,17 @@ export class DiscordClient {
 
   private attachSessionListeners(session: Agent, channel: TextChannel) {
     let firstOutput = true;
+    let sessionIdDiscovered = false;
+
+    session.on('event', (event: OpenCodeEvent) => {
+      const sid = event.sessionID || event.part?.sessionID;
+      if (sid && !sessionIdDiscovered) {
+        sessionIdDiscovered = true;
+        const alias = this.sessionManager.getAliasForSession(sid);
+        const displayName = alias || sid.replace('ses_', '');
+        channel.send(`🆔 **Session Name:** \`${displayName}\``).catch(console.error);
+      }
+    });
 
     session.on('output', (text: string) => {
       if (firstOutput) {
@@ -316,15 +468,13 @@ export class DiscordClient {
       }
     });
 
-    if (session instanceof OpenCodeProcess) {
-      session.on('heartbeat', (seconds: number) => {
-        if (seconds === 10) {
-          channel
-            .send('⚠️ **Agent is taking longer than expected to respond...**')
-            .catch(console.error);
-        }
-      });
-    }
+    session.on('heartbeat', (seconds: number) => {
+      if (seconds === 10) {
+        channel
+          .send('⚠️ **Agent is taking longer than expected to respond...**')
+          .catch(console.error);
+      }
+    });
 
     session.on('idle', () => {
       channel.send('✅ **Ready for input**').catch(console.error);
@@ -335,12 +485,6 @@ export class DiscordClient {
       channel
         .send(`❌ **Error:** ${error.message || 'Unknown error occurred'}`)
         .catch(console.error);
-    });
-
-    session.on('stderr', (data: string) => {
-      if (data.trim()) {
-        // channel.send(`⚠️ **Stderr:**\n\`\`\`\n${data.substring(0, 1500)}\n\`\`\``).catch(console.error);
-      }
     });
 
     session.on('exit', async (code: number) => {
@@ -368,19 +512,20 @@ export class DiscordClient {
     const commands = [
       new SlashCommandBuilder().setName('ping').setDescription('Replies with Pong!'),
       new SlashCommandBuilder()
+        .setName('setup')
+        .setDescription('Set the category for new session channels')
+        .addChannelOption((option) =>
+          option
+            .setName('category')
+            .setDescription('The category where sessions will be created')
+            .addChannelTypes(ChannelType.GuildCategory)
+            .setRequired(true),
+        ),
+      new SlashCommandBuilder()
         .setName('new')
-        .setDescription('Start a new OpenCode session (One-Shot by default)')
+        .setDescription('Start a new OpenCode session')
         .addStringOption((option) =>
           option.setName('prompt').setDescription('Initial prompt for the agent'),
-        )
-        .addStringOption((option) =>
-          option
-            .setName('mode')
-            .setDescription('Session mode (default: One-Shot)')
-            .addChoices(
-              { name: 'One-Shot (Stateless)', value: 'oneshot' },
-              { name: 'Persistent (Stateful)', value: 'persistent' },
-            ),
         ),
       new SlashCommandBuilder()
         .setName('test-bridge')
@@ -394,12 +539,12 @@ export class DiscordClient {
         .addStringOption((option) =>
           option
             .setName('session_id')
-            .setDescription('The ID of the session to resume')
+            .setDescription('The ID/Name of the session to resume')
             .setRequired(true),
         ),
       new SlashCommandBuilder()
         .setName('interrupt')
-        .setDescription('Send an interrupt signal (double-ESC) to the current session'),
+        .setDescription('Kill the current running process for this session'),
       new SlashCommandBuilder()
         .setName('peek-log')
         .setDescription('Peek at the raw stdout and stderr logs for this session'),
@@ -409,6 +554,9 @@ export class DiscordClient {
       new SlashCommandBuilder()
         .setName('debug')
         .setDescription('Show debug information about the bot status'),
+      new SlashCommandBuilder()
+        .setName('restart')
+        .setDescription('Restart the session in this channel (wipe history)'),
     ].map((command) => command.toJSON());
 
     const rest = new REST({ version: '10' }).setToken(this.token);
@@ -451,30 +599,15 @@ export class DiscordClient {
 
         const channel = await this.client.channels.fetch(channelId);
         if (channel && channel.type === ChannelType.GuildText) {
-          const type = this.sessionManager.getSessionType(channelId);
+          console.log(`Recovering session ${sessionId} in channel ${channelId}`);
+          this.sessionManager.prepareSession(channelId, sessionId);
 
-          if (type === 'oneshot') {
-            // Just prepare metadata
-            this.sessionManager.prepareOneShotSession(channelId, sessionId);
-            continue;
-          }
-
-          console.log(`Recovering persistent session ${sessionId} in channel ${channelId}`);
-          const session =
-            type === 'mock'
-              ? this.sessionManager.prepareMockSession(channelId, sessionId)
-              : this.sessionManager.prepareSession(channelId, sessionId);
-
-          this.attachSessionListeners(session, channel as TextChannel);
-
+          const count = this.sessionManager.getCurrentSessionCount(channelId);
+          const alias = this.sessionManager.getAliasForSession(sessionId);
+          const displayName = alias || sessionId.replace('ses_', '');
           await (channel as TextChannel).send(
-            '🔄 **Bridge restarted. Re-attaching to session...**',
+            `🔄 **Bridge restarted. Ready to continue session #${count} (${displayName})...**`,
           );
-
-          this.channelBusy.add(channel.id);
-          session.start().finally(() => {
-            this.channelBusy.delete(channel.id);
-          });
         } else {
           this.sessionManager.removeSession(channelId);
         }
@@ -486,6 +619,10 @@ export class DiscordClient {
 
   getClient() {
     return this.client;
+  }
+
+  getCategoryId() {
+    return this.sessionManager.getCategoryId();
   }
 
   getSessionManager() {

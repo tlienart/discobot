@@ -16,8 +16,10 @@ sessions.test.json
 !tsconfig.json
 
 # Exclude internal planning and documentation
+# Keep major planning and experimentation docs
+!PLAN.md
+!EXPERIMENTATION.md
 TASKS_*.md
-PLAN.md
 DOC_DISCORD_SETUP.md
 DEBUG_PLAN.md
 FUTURE_STEPS.md
@@ -27,6 +29,7 @@ TESTING_PROTOCOL.md
 # Exclude diagnostic and temporary scripts
 capture.ts
 test-*.ts
+repro_stall.ts
 !src/**/*.test.ts
 !index.test.ts
 
