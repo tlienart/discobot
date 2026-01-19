@@ -127,10 +127,19 @@ describe('Integration: Full Flow', () => {
     expect(mockInteraction.deferReply).toHaveBeenCalled();
     expect(mockGuild.channels.create).toHaveBeenCalled();
     expect(mockInteraction.editReply).toHaveBeenCalled();
-    expect(mockProcess.start).toHaveBeenCalledWith('Start test session');
+    expect(mockProcess.start).toHaveBeenCalledWith(expect.stringContaining('Start test session'));
+    expect(mockProcess.start).toHaveBeenCalledWith(
+      expect.stringContaining('IMPORTANT: Your response will be displayed on Discord'),
+    );
 
     // 2. Simulate opencode output
     mockProcess.emit('output', 'Hello from OpenCode!');
+
+    // Robust wait for send call
+    for (let i = 0; i < 200 && mockChannel.send.mock.calls.length < 3; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+
     expect(mockChannel.send).toHaveBeenCalledWith('Hello from OpenCode!');
 
     // 3. Simulate thinking status
@@ -154,7 +163,10 @@ describe('Integration: Full Flow', () => {
       await new Promise((r) => setTimeout(r, 20));
     }
 
-    expect(mockProcess.start).toHaveBeenCalledWith('Hello agent!');
+    expect(mockProcess.start).toHaveBeenCalledWith(expect.stringContaining('Hello agent!'));
+    expect(mockProcess.start).toHaveBeenCalledWith(
+      expect.stringContaining('IMPORTANT: Your response will be displayed on Discord'),
+    );
     expect(mockMessage.react).toHaveBeenCalledWith('📥');
   });
 });

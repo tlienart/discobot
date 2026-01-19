@@ -52,7 +52,11 @@ This project aims to build a portable bridge between Discord and multiple `openc
 - [x] **Phase 6: Maintenance & Bug Fixes**
   - [x] Fix One-Shot regression caused by session ID pre-generation.
   - [x] Fix JSON parser hang on tool outputs with braces.
-  - [x] Implement bridge-side summarization for responses > 2000 chars.
+- [x] **Phase 9: Response Optimization & Interactivity**
+  - [x] Implement Direct Stream architecture (Pipe-based).
+  - [x] Implement silent summarization loop for messages > 2000 chars.
+  - [x] Enhance terminal logging for tool usage and context processing.
+  - [x] Single updating 'Still thinking' message with elapsed time.
   - [x] Remove "Using tool..." UI noise (and fix regression in #9).
 
 - [x] **Phase 7: Session Lifecycle & Interaction**

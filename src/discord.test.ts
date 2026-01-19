@@ -116,7 +116,10 @@ describe('DiscordClient', () => {
     expect(mockInteraction.deferReply).toHaveBeenCalled();
     expect(mockInteraction.guild.channels.create).toHaveBeenCalled();
     expect(prepareSessionSpy).toHaveBeenCalledWith('channel-new-123');
-    expect(startSpy).toHaveBeenCalledWith('hello');
+    expect(startSpy).toHaveBeenCalledWith(expect.stringContaining('hello'));
+    expect(startSpy).toHaveBeenCalledWith(
+      expect.stringContaining('IMPORTANT: Your response will be displayed on Discord'),
+    );
     expect(mockInteraction.editReply).toHaveBeenCalled();
   });
 
@@ -216,6 +219,9 @@ describe('DiscordClient', () => {
 
     expect(getSessionSpy).toHaveBeenCalledWith('channel-inject-123');
     expect(prepareSpy).toHaveBeenCalledWith('channel-inject-123', 'ses_zebra');
-    expect(startSpy).toHaveBeenCalledWith('inject this');
+    expect(startSpy).toHaveBeenCalledWith(expect.stringContaining('inject this'));
+    expect(startSpy).toHaveBeenCalledWith(
+      expect.stringContaining('IMPORTANT: Your response will be displayed on Discord'),
+    );
   });
 });
