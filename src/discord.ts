@@ -33,6 +33,7 @@ export class DiscordClient {
   private heartbeatTimers: Map<string, Timer> = new Map();
   private thinkingMessages: Map<string, Message> = new Map();
   private thinkingStartTimes: Map<string, number> = new Map();
+  private summarizingChannels: Set<string> = new Set();
 
   // Track if a channel is currently busy with a process
   private channelBusy: Set<string> = new Set();
@@ -454,6 +455,34 @@ export class DiscordClient {
         console.log(`[Discord] First output received for channel ${channel.id}`);
         firstOutput = false;
       }
+
+      // Check for Discord character limit
+      if (text.length > 1900 && !this.summarizingChannels.has(channel.id)) {
+        console.log(
+          `[Discord] Output too long (${text.length} chars) for ${channel.id}. Triggering silent summarization...`,
+        );
+        this.summarizingChannels.add(channel.id);
+        await cleanupThinking();
+
+        // Inform user in terminal
+        console.log(`[Discord] Full output preserved in logs. Requesting summary...`);
+
+        // Start a new agent turn for summarization
+        const stableSessionId = this.sessionManager.getChannelMapping().get(channel.id);
+        const freshSession = this.sessionManager.prepareSession(channel.id, stableSessionId);
+        this.attachSessionListeners(freshSession, channel);
+
+        this.channelBusy.add(channel.id);
+        const summarizationPrompt =
+          'The previous output was too long for the user interface. Please provide a concise summary of the key information provided in the previous step. Ensure the summary is under 1800 characters and maintains all essential facts, data, and formatting.';
+
+        freshSession.start(summarizationPrompt).finally(() => {
+          this.channelBusy.delete(channel.id);
+          this.summarizingChannels.delete(channel.id);
+        });
+        return;
+      }
+
       await cleanupThinking();
       // Log snippet to terminal
       const snippet = text.length > 50 ? text.substring(0, 47) + '...' : text;
@@ -476,15 +505,17 @@ export class DiscordClient {
           const heartbeat = setInterval(async () => {
             const startTime = this.thinkingStartTimes.get(channel.id);
             const elapsed = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
+            const isSummarizing = this.summarizingChannels.has(channel.id);
+            const statusText = isSummarizing ? 'Synthesizing summary' : 'Still thinking';
 
             let msg = this.thinkingMessages.get(channel.id);
             if (!msg) {
               msg = await channel
-                .send(`⏳ *Still thinking... (${elapsed}s elapsed)*`)
+                .send(`⏳ *${statusText}... (${elapsed}s elapsed)*`)
                 .catch(() => undefined);
               if (msg) this.thinkingMessages.set(channel.id, msg);
             } else {
-              await msg.edit(`⏳ *Still thinking... (${elapsed}s elapsed)*`).catch(() => {});
+              await msg.edit(`⏳ *${statusText}... (${elapsed}s elapsed)*`).catch(() => {});
             }
           }, 15000);
           this.heartbeatTimers.set(channel.id, heartbeat);
