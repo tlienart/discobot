@@ -105,6 +105,10 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        this.lastActivity = Date.now();
+        if (value.length > 1024) {
+          console.log(`[Agent] Received large data chunk: ${(value.length / 1024).toFixed(1)}KB`);
+        }
         callback(decoder.decode(value));
       }
     } catch (error) {
@@ -156,16 +160,29 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
 
     if (event.type === 'text') {
       const text = event.part?.text || event.text;
-      if (text) this.emit('output', text);
+      if (text) {
+        this.emit('output', text);
+      }
     } else if (event.type === 'step_start') {
+      console.log('[Agent] Event: step_start');
       this.emit('thinking', true);
     } else if (event.type === 'step_finish') {
+      const reason = event.part?.reason;
+      console.log(`[Agent] Event: step_finish (${reason})`);
       this.emit('thinking', false);
-      if (event.part?.reason === 'stop') this.emit('idle');
+      if (reason === 'stop') this.emit('idle');
     } else if (event.type === 'tool_use') {
       const toolName = event.part?.tool || event.tool;
-      const input = event.part?.state?.input ? JSON.stringify(event.part.state.input) : '';
-      console.log(`[Agent] Tool Use: ${toolName} ${input}`);
+      let inputStr = '';
+      if (event.part?.state?.input) {
+        inputStr = JSON.stringify(event.part.state.input);
+        if (inputStr.length > 200) {
+          inputStr = inputStr.substring(0, 197) + '...';
+        }
+      }
+      console.log(`[Agent] Tool Use: ${toolName} ${inputStr}`);
+    } else {
+      console.log(`[Agent] Event: ${event.type}`);
     }
   }
 
