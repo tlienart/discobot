@@ -118,7 +118,7 @@ describe('DiscordClient', () => {
     expect(prepareSessionSpy).toHaveBeenCalledWith('channel-new-123');
     expect(startSpy).toHaveBeenCalledWith(expect.stringContaining('hello'));
     expect(startSpy).toHaveBeenCalledWith(
-      expect.stringContaining('[Instruction: Stay under 1900 chars'),
+      expect.stringContaining('IMPORTANT: Stay under 1900 chars'),
     );
     expect(mockInteraction.editReply).toHaveBeenCalled();
   });
@@ -221,7 +221,7 @@ describe('DiscordClient', () => {
     expect(prepareSpy).toHaveBeenCalledWith('channel-inject-123', 'ses_zebra');
     expect(startSpy).toHaveBeenCalledWith(expect.stringContaining('inject this'));
     expect(startSpy).toHaveBeenCalledWith(
-      expect.stringContaining('[Instruction: Stay under 1900 chars'),
+      expect.stringContaining('IMPORTANT: Stay under 1900 chars'),
     );
   });
 });

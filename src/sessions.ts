@@ -355,7 +355,7 @@ export class SessionManager {
             unlinkSync(path);
           }
         } catch {
-          // Skip if already gone or locked
+          // Ignore
         }
       }
     }
@@ -373,7 +373,7 @@ export class SessionManager {
           }
         }
       } catch {
-        // Skip if error reading session DB
+        // Ignore
       }
     }
 

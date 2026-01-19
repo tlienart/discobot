@@ -67,7 +67,7 @@ export class DiscordClient {
     });
 
     const getDiscordPrompt = (userPrompt: string) => {
-      return `${userPrompt} [Instruction: Stay under 1900 chars, be concise, summarize raw data]`;
+      return `${userPrompt}\n\nIMPORTANT: Stay under 1900 chars, be concise, summarize raw data.`;
     };
 
     this.client.on(Events.InteractionCreate, async (interaction) => {
