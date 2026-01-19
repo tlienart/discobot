@@ -19,12 +19,20 @@ sessions.test.json
 # Keep major planning and experimentation docs
 !PLAN.md
 !EXPERIMENTATION.md
+!SANDBOX_PLAN.md
+!SERVER_SETUP.md
 TASKS_*.md
 DOC_DISCORD_SETUP.md
 DEBUG_PLAN.md
 FUTURE_STEPS.md
 AGENTS.md
 TESTING_PROTOCOL.md
+
+# Sandbox and test artifacts
+sandbox_data/
+test-workspace/
+.fence.json
+workspace/
 
 # Exclude diagnostic and temporary scripts
 capture.ts
