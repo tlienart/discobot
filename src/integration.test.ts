@@ -6,6 +6,15 @@ import { EventEmitter } from 'events';
 import { existsSync, unlinkSync } from 'fs';
 import { type Agent } from './agent';
 
+interface MockAgent extends EventEmitter {
+  start: ReturnType<typeof mock>;
+  sendInput: ReturnType<typeof mock>;
+  stop: ReturnType<typeof mock>;
+  getPid: ReturnType<typeof mock>;
+  getStdoutPath: ReturnType<typeof mock>;
+  getStderrPath: ReturnType<typeof mock>;
+}
+
 describe('Integration: Full Flow', () => {
   let client: DiscordClient;
   let mockGuild: {
@@ -20,20 +29,17 @@ describe('Integration: Full Flow', () => {
     sendTyping: ReturnType<typeof mock>;
     type: ChannelType;
   };
-  let mockProcess: EventEmitter & {
-    start: ReturnType<typeof mock>;
-    sendInput: ReturnType<typeof mock>;
-    stop: ReturnType<typeof mock>;
-    getPid: ReturnType<typeof mock>;
-    getStdoutPath: ReturnType<typeof mock>;
-    getStderrPath: ReturnType<typeof mock>;
-  };
+  let mockProcess: MockAgent;
 
   beforeEach(() => {
     process.env.DISCORD_TOKEN = 'test-token';
     process.env.DISCORD_CLIENT_ID = 'test-client-id';
     process.env.DISCORD_GUILD_ID = 'test-guild-id';
     process.env.SESSION_DB = 'integration.test.json';
+
+    if (existsSync('integration.test.json')) {
+      unlinkSync('integration.test.json');
+    }
 
     const channel = new EventEmitter();
     // @ts-expect-error - mock setup
@@ -54,20 +60,14 @@ describe('Integration: Full Flow', () => {
     };
 
     // Mock SessionManager to avoid actual spawn
-    const proc = new EventEmitter();
-    // @ts-expect-error - mock setup
+    const proc = new EventEmitter() as MockAgent;
     proc.start = mock(async () => Promise.resolve());
-    // @ts-expect-error - mock setup
     proc.sendInput = mock(() => {});
-    // @ts-expect-error - mock setup
     proc.stop = mock(() => {});
-    // @ts-expect-error - mock setup
     proc.getPid = mock(() => 123);
-    // @ts-expect-error - mock setup
     proc.getStdoutPath = mock(() => 'stdout');
-    // @ts-expect-error - mock setup
     proc.getStderrPath = mock(() => 'stderr');
-    mockProcess = proc as unknown as typeof mockProcess;
+    mockProcess = proc;
 
     const mockSessionCreator = (channelId: string) => {
       // @ts-expect-error - accessing private map
@@ -108,8 +108,8 @@ describe('Integration: Full Flow', () => {
     );
 
     // Robust wait for start call
-    for (let i = 0; i < 100 && mockProcess.start.mock.calls.length === 0; i++) {
-      await new Promise((r) => setTimeout(r, 10));
+    for (let i = 0; i < 200 && mockProcess.start.mock.calls.length === 0; i++) {
+      await new Promise((r) => setTimeout(r, 20));
     }
 
     expect(mockInteraction.deferReply).toHaveBeenCalled();
@@ -138,8 +138,8 @@ describe('Integration: Full Flow', () => {
     discordClient.emit('messageCreate', mockMessage as Message);
 
     // Robust wait for second start call
-    for (let i = 0; i < 100 && mockProcess.start.mock.calls.length < 2; i++) {
-      await new Promise((r) => setTimeout(r, 10));
+    for (let i = 0; i < 200 && mockProcess.start.mock.calls.length < 2; i++) {
+      await new Promise((r) => setTimeout(r, 20));
     }
 
     expect(mockProcess.start).toHaveBeenCalledWith('Hello agent!');
