@@ -34,6 +34,8 @@ export class DiscordClient {
   private thinkingMessages: Map<string, Message> = new Map();
   private thinkingStartTimes: Map<string, number> = new Map();
   private summarizingChannels: Set<string> = new Set();
+  private lastToolUsed: Map<string, string> = new Map();
+  private cleanupTimers: Map<string, Timer> = new Map();
 
   // Track if a channel is currently busy with a process
   private channelBusy: Set<string> = new Set();
@@ -63,6 +65,10 @@ export class DiscordClient {
     this.client.once(Events.ClientReady, (readyClient) => {
       console.log(`Ready! Logged in as ${readyClient.user.tag}`);
     });
+
+    const getDiscordPrompt = (userPrompt: string) => {
+      return `${userPrompt}\n\nIMPORTANT: Your response will be displayed on Discord (2000 character limit). Please be concise and summarize large amounts of data. Do not provide raw data dumps.`;
+    };
 
     this.client.on(Events.InteractionCreate, async (interaction) => {
       if (!interaction.isChatInputCommand()) return;
@@ -124,7 +130,7 @@ export class DiscordClient {
               );
 
               this.channelBusy.add(channel.id);
-              session.start(prompt).finally(() => {
+              session.start(getDiscordPrompt(prompt)).finally(() => {
                 this.channelBusy.delete(channel.id);
               });
             }
@@ -406,7 +412,7 @@ export class DiscordClient {
           this.attachSessionListeners(freshSession, message.channel as TextChannel);
 
           this.channelBusy.add(message.channelId);
-          freshSession.start(message.content).finally(() => {
+          freshSession.start(getDiscordPrompt(message.content)).finally(() => {
             this.channelBusy.delete(message.channelId);
           });
         } catch (error) {
@@ -421,23 +427,37 @@ export class DiscordClient {
     let firstOutput = true;
     let sessionIdDiscovered = false;
 
-    const cleanupThinking = async () => {
-      const existingInterval = this.typingIntervals.get(channel.id);
-      if (existingInterval) {
-        clearInterval(existingInterval);
-        this.typingIntervals.delete(channel.id);
+    const cleanupThinking = async (immediate = false) => {
+      // Clear current tool info immediately
+      this.lastToolUsed.delete(channel.id);
+
+      const performCleanup = async () => {
+        const existingInterval = this.typingIntervals.get(channel.id);
+        if (existingInterval) {
+          clearInterval(existingInterval);
+          this.typingIntervals.delete(channel.id);
+        }
+        const existingHeartbeat = this.heartbeatTimers.get(channel.id);
+        if (existingHeartbeat) {
+          clearInterval(existingHeartbeat);
+          this.heartbeatTimers.delete(channel.id);
+        }
+        const msg = this.thinkingMessages.get(channel.id);
+        if (msg) {
+          await msg.delete().catch(() => {});
+          this.thinkingMessages.delete(channel.id);
+        }
+        this.thinkingStartTimes.delete(channel.id);
+        this.cleanupTimers.delete(channel.id);
+      };
+
+      if (immediate) {
+        await performCleanup();
+      } else {
+        // Debounce cleanup for 2 seconds to prevent UI flicker
+        const timer = setTimeout(performCleanup, 2000);
+        this.cleanupTimers.set(channel.id, timer);
       }
-      const existingHeartbeat = this.heartbeatTimers.get(channel.id);
-      if (existingHeartbeat) {
-        clearInterval(existingHeartbeat);
-        this.heartbeatTimers.delete(channel.id);
-      }
-      const msg = this.thinkingMessages.get(channel.id);
-      if (msg) {
-        await msg.delete().catch(() => {});
-        this.thinkingMessages.delete(channel.id);
-      }
-      this.thinkingStartTimes.delete(channel.id);
     };
 
     session.on('event', (event: OpenCodeEvent) => {
@@ -447,6 +467,12 @@ export class DiscordClient {
         const alias = this.sessionManager.getAliasForSession(sid);
         const displayName = alias || sid.replace('ses_', '');
         channel.send(`🆔 **Session Name:** \`${displayName}\``).catch(console.error);
+      }
+
+      // Track tool usage for heartbeat
+      const toolName = event.part?.tool || event.tool;
+      if (toolName) {
+        this.lastToolUsed.set(channel.id, toolName);
       }
     });
 
@@ -462,7 +488,7 @@ export class DiscordClient {
           `[Discord] Output too long (${text.length} chars) for ${channel.id}. Triggering silent summarization...`,
         );
         this.summarizingChannels.add(channel.id);
-        await cleanupThinking();
+        await cleanupThinking(true);
 
         // Inform user in terminal
         console.log(`[Discord] Full output preserved in logs. Requesting summary...`);
@@ -492,6 +518,13 @@ export class DiscordClient {
 
     session.on('thinking', async (isThinking: boolean) => {
       if (isThinking) {
+        // Cancel any pending cleanup
+        const pendingCleanup = this.cleanupTimers.get(channel.id);
+        if (pendingCleanup) {
+          clearTimeout(pendingCleanup);
+          this.cleanupTimers.delete(channel.id);
+        }
+
         if (!this.typingIntervals.has(channel.id)) {
           channel.sendTyping().catch(console.error);
           const interval = setInterval(() => {
@@ -506,7 +539,10 @@ export class DiscordClient {
             const startTime = this.thinkingStartTimes.get(channel.id);
             const elapsed = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
             const isSummarizing = this.summarizingChannels.has(channel.id);
-            const statusText = isSummarizing ? 'Synthesizing summary' : 'Still thinking';
+            const tool = this.lastToolUsed.get(channel.id);
+
+            let statusText = isSummarizing ? 'Synthesizing summary' : 'Still thinking';
+            if (tool) statusText += ` (Using ${tool})`;
 
             let msg = this.thinkingMessages.get(channel.id);
             if (!msg) {
