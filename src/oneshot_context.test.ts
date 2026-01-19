@@ -44,7 +44,6 @@ describe('One-Shot Context Persistence', () => {
     const discordClient = client.getClient();
     const sessionManager = client.getSessionManager();
 
-    console.log('TEST_CONTEXT: Preparing session...');
     const stableSid = 'ses_oneshot_stable_123';
     sessionManager.prepareSession('channel-oneshot', stableSid);
 
@@ -53,7 +52,6 @@ describe('One-Shot Context Persistence', () => {
       async function (this: unknown) {
         const self = this as { sessionId?: string };
         const sid = self.sessionId || '';
-        console.log(`TEST_CONTEXT: startSpy caught call with SID: ${sid}`);
         capturedSessionIds.push(sid);
         return Promise.resolve();
       },
@@ -70,7 +68,6 @@ describe('One-Shot Context Persistence', () => {
       reply: mock(async () => {}),
     };
 
-    console.log('TEST_CONTEXT: Emitting first message...');
     // @ts-expect-error - mock message emission
     discordClient.emit('messageCreate', mockMessage1 as Message);
 
@@ -92,7 +89,6 @@ describe('One-Shot Context Persistence', () => {
       reply: mock(async () => {}),
     };
 
-    console.log('TEST_CONTEXT: Emitting second message...');
     // @ts-expect-error - mock message emission
     discordClient.emit('messageCreate', mockMessage2 as Message);
 
