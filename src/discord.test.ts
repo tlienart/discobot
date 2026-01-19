@@ -1,4 +1,4 @@
-import { expect, test, describe, mock, spyOn, beforeEach, afterAll } from 'bun:test';
+import { expect, test, describe, mock, spyOn, beforeEach, afterAll, afterEach } from 'bun:test';
 import { DiscordClient } from './discord';
 import { ChannelType, type ChatInputCommandInteraction, type Message } from 'discord.js';
 import { SessionManager } from './sessions';
@@ -8,8 +8,15 @@ import { unlinkSync, existsSync, writeFileSync } from 'fs';
 const TEST_DB = 'sessions.test.json';
 
 describe('DiscordClient', () => {
+  const spies: { mockRestore: () => void }[] = [];
+
   afterAll(() => {
     if (existsSync(TEST_DB)) unlinkSync(TEST_DB);
+  });
+
+  afterEach(() => {
+    for (const spy of spies) spy.mockRestore();
+    spies.length = 0;
   });
 
   beforeEach(() => {
@@ -25,6 +32,7 @@ describe('DiscordClient', () => {
 
     const client = new DiscordClient();
     const fetchSpy = spyOn(client.getClient().channels, 'fetch');
+    spies.push(fetchSpy);
 
     await (client as unknown as { recoverSessions: () => Promise<void> }).recoverSessions();
 
@@ -75,10 +83,11 @@ describe('DiscordClient', () => {
       new OpenCodeAgent('test-session'),
     );
     const startSpy = spyOn(OpenCodeAgent.prototype, 'start').mockImplementation(async () => {});
+    spies.push(prepareSessionSpy, startSpy);
 
     const client = new DiscordClient();
     const mockChannel = {
-      id: 'channel-123',
+      id: 'channel-new-123',
       name: 'opencode-1234',
       type: ChannelType.GuildText,
       send: mock(async () => {}),
@@ -106,12 +115,9 @@ describe('DiscordClient', () => {
 
     expect(mockInteraction.deferReply).toHaveBeenCalled();
     expect(mockInteraction.guild.channels.create).toHaveBeenCalled();
-    expect(prepareSessionSpy).toHaveBeenCalledWith('channel-123');
+    expect(prepareSessionSpy).toHaveBeenCalledWith('channel-new-123');
     expect(startSpy).toHaveBeenCalledWith('hello');
     expect(mockInteraction.editReply).toHaveBeenCalled();
-
-    prepareSessionSpy.mockRestore();
-    startSpy.mockRestore();
   });
 
   test('should handle /resume command', async () => {
@@ -119,6 +125,7 @@ describe('DiscordClient', () => {
       new OpenCodeAgent('test-session'),
     );
     const startSpy = spyOn(OpenCodeAgent.prototype, 'start').mockImplementation(async () => {});
+    spies.push(prepareSessionSpy, startSpy);
 
     const client = new DiscordClient();
     const mockInteraction = {
@@ -145,9 +152,6 @@ describe('DiscordClient', () => {
     expect(prepareSessionSpy).toHaveBeenCalledWith('chan-resume', 'ses_existing');
     expect(startSpy).toHaveBeenCalled();
     expect(mockInteraction.editReply).toHaveBeenCalled();
-
-    prepareSessionSpy.mockRestore();
-    startSpy.mockRestore();
   });
 
   test('should handle /resume error when ID is missing', async () => {
@@ -182,21 +186,22 @@ describe('DiscordClient', () => {
         }) as unknown as OpenCodeAgent,
     );
     const getMappingSpy = spyOn(SessionManager.prototype, 'getChannelMapping').mockReturnValue(
-      new Map([['channel-123', 'ses_zebra']]),
+      new Map([['channel-inject-123', 'ses_zebra']]),
     );
     const prepareSpy = spyOn(SessionManager.prototype, 'prepareSession').mockReturnValue({
       start: startSpy,
       on: mock(() => {}),
     } as unknown as OpenCodeAgent);
+    spies.push(getSessionSpy, getMappingSpy, prepareSpy);
 
     const client = new DiscordClient();
     const mockMessage = {
       author: { bot: false },
-      channelId: 'channel-123',
+      channelId: 'channel-inject-123',
       content: 'inject this',
       react: mock(async () => {}),
       channel: {
-        id: 'channel-123',
+        id: 'channel-inject-123',
         send: mock(async () => {}),
       },
     };
@@ -205,16 +210,12 @@ describe('DiscordClient', () => {
     client.getClient().emit('messageCreate', mockMessage as Message);
 
     // Robust wait for start call
-    for (let i = 0; i < 100 && startSpy.mock.calls.length === 0; i++) {
-      await new Promise((r) => setTimeout(r, 10));
+    for (let i = 0; i < 250 && startSpy.mock.calls.length === 0; i++) {
+      await new Promise((r) => setTimeout(r, 20));
     }
 
-    expect(getSessionSpy).toHaveBeenCalledWith('channel-123');
-    expect(prepareSpy).toHaveBeenCalledWith('channel-123', 'ses_zebra');
+    expect(getSessionSpy).toHaveBeenCalledWith('channel-inject-123');
+    expect(prepareSpy).toHaveBeenCalledWith('channel-inject-123', 'ses_zebra');
     expect(startSpy).toHaveBeenCalledWith('inject this');
-
-    getSessionSpy.mockRestore();
-    getMappingSpy.mockRestore();
-    prepareSpy.mockRestore();
   });
 });

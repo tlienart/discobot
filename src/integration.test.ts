@@ -1,4 +1,4 @@
-import { expect, test, describe, mock, spyOn, beforeEach } from 'bun:test';
+import { expect, test, describe, mock, spyOn, beforeEach, afterEach } from 'bun:test';
 import { DiscordClient } from './discord';
 import { SessionManager } from './sessions';
 import { ChannelType, type Message, type ChatInputCommandInteraction } from 'discord.js';
@@ -30,6 +30,7 @@ describe('Integration: Full Flow', () => {
     type: ChannelType;
   };
   let mockProcess: MockAgent;
+  const spies: { mockRestore: () => void }[] = [];
 
   beforeEach(() => {
     process.env.DISCORD_TOKEN = 'test-token';
@@ -43,7 +44,7 @@ describe('Integration: Full Flow', () => {
 
     const channel = new EventEmitter();
     // @ts-expect-error - mock setup
-    channel.id = 'channel-123';
+    channel.id = 'channel-integration-123';
     // @ts-expect-error - mock setup
     channel.send = mock(async () => ({}));
     // @ts-expect-error - mock setup
@@ -77,10 +78,21 @@ describe('Integration: Full Flow', () => {
       return mockProcess as Agent;
     };
 
-    spyOn(SessionManager.prototype, 'prepareSession').mockImplementation(mockSessionCreator);
+    const prepareSpy = spyOn(SessionManager.prototype, 'prepareSession').mockImplementation(
+      mockSessionCreator,
+    );
+    spies.push(prepareSpy);
 
     client = new DiscordClient();
-    client.getSessionManager().setCategoryId('cat-123');
+    client.getSessionManager().setCategoryId('cat-integration-123');
+  });
+
+  afterEach(() => {
+    for (const spy of spies) spy.mockRestore();
+    spies.length = 0;
+    if (existsSync('integration.test.json')) {
+      unlinkSync('integration.test.json');
+    }
   });
 
   test('should handle new session, relay output, and inject input', async () => {
@@ -99,7 +111,7 @@ describe('Integration: Full Flow', () => {
       guild: mockGuild,
       deferReply: mock(async () => {}),
       editReply: mock(async () => {}),
-      channelId: 'cmd-channel',
+      channelId: 'cmd-integration-channel',
     };
 
     discordClient.emit(
@@ -108,7 +120,7 @@ describe('Integration: Full Flow', () => {
     );
 
     // Robust wait for start call
-    for (let i = 0; i < 200 && mockProcess.start.mock.calls.length === 0; i++) {
+    for (let i = 0; i < 250 && mockProcess.start.mock.calls.length === 0; i++) {
       await new Promise((r) => setTimeout(r, 20));
     }
 
@@ -128,7 +140,7 @@ describe('Integration: Full Flow', () => {
     // 4. Simulate user input in Discord
     const mockMessage = {
       author: { bot: false },
-      channelId: 'channel-123',
+      channelId: 'channel-integration-123',
       content: 'Hello agent!',
       react: mock(async () => {}),
       channel: mockChannel,
@@ -138,15 +150,11 @@ describe('Integration: Full Flow', () => {
     discordClient.emit('messageCreate', mockMessage as Message);
 
     // Robust wait for second start call
-    for (let i = 0; i < 200 && mockProcess.start.mock.calls.length < 2; i++) {
+    for (let i = 0; i < 250 && mockProcess.start.mock.calls.length < 2; i++) {
       await new Promise((r) => setTimeout(r, 20));
     }
 
     expect(mockProcess.start).toHaveBeenCalledWith('Hello agent!');
     expect(mockMessage.react).toHaveBeenCalledWith('📥');
-
-    if (existsSync('integration.test.json')) {
-      unlinkSync('integration.test.json');
-    }
   });
 });

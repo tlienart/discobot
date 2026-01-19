@@ -1,4 +1,4 @@
-import { expect, test, describe, mock, spyOn, beforeEach } from 'bun:test';
+import { expect, test, describe, mock, spyOn, beforeEach, afterEach } from 'bun:test';
 import { DiscordClient } from './discord';
 import { ChannelType, type Message } from 'discord.js';
 import { EventEmitter } from 'events';
@@ -8,6 +8,7 @@ import { existsSync, unlinkSync } from 'fs';
 describe('One-Shot Context Persistence', () => {
   let client: DiscordClient;
   let mockChannel: EventEmitter & { id: string; send: ReturnType<typeof mock>; type: ChannelType };
+  const spies: { mockRestore: () => void }[] = [];
 
   beforeEach(() => {
     process.env.DISCORD_TOKEN = 'test-token';
@@ -31,11 +32,19 @@ describe('One-Shot Context Persistence', () => {
     client = new DiscordClient();
   });
 
+  afterEach(() => {
+    for (const spy of spies) spy.mockRestore();
+    spies.length = 0;
+    if (existsSync('oneshot_context.test.json')) {
+      unlinkSync('oneshot_context.test.json');
+    }
+  });
+
   test('should reuse stable sessionId for multiple oneshot messages', async () => {
     const discordClient = client.getClient();
     const sessionManager = client.getSessionManager();
 
-    console.log('TEST: Preparing session...');
+    console.log('TEST_CONTEXT: Preparing session...');
     const stableSid = 'ses_oneshot_stable_123';
     sessionManager.prepareSession('channel-oneshot', stableSid);
 
@@ -44,11 +53,12 @@ describe('One-Shot Context Persistence', () => {
       async function (this: unknown) {
         const self = this as { sessionId?: string };
         const sid = self.sessionId || '';
-        console.log(`TEST: startSpy caught call with SID: ${sid}`);
+        console.log(`TEST_CONTEXT: startSpy caught call with SID: ${sid}`);
         capturedSessionIds.push(sid);
         return Promise.resolve();
       },
     );
+    spies.push(startSpy);
 
     // 3. Simulate first message
     const mockMessage1 = {
@@ -60,12 +70,12 @@ describe('One-Shot Context Persistence', () => {
       reply: mock(async () => {}),
     };
 
-    console.log('TEST: Emitting first message...');
+    console.log('TEST_CONTEXT: Emitting first message...');
     // @ts-expect-error - mock message emission
     discordClient.emit('messageCreate', mockMessage1 as Message);
 
     // Robust wait for the spy
-    for (let i = 0; i < 200 && startSpy.mock.calls.length === 0; i++) {
+    for (let i = 0; i < 250 && startSpy.mock.calls.length === 0; i++) {
       await new Promise((r) => setTimeout(r, 20));
     }
 
@@ -82,20 +92,15 @@ describe('One-Shot Context Persistence', () => {
       reply: mock(async () => {}),
     };
 
-    console.log('TEST: Emitting second message...');
+    console.log('TEST_CONTEXT: Emitting second message...');
     // @ts-expect-error - mock message emission
     discordClient.emit('messageCreate', mockMessage2 as Message);
 
-    for (let i = 0; i < 200 && startSpy.mock.calls.length < 2; i++) {
+    for (let i = 0; i < 250 && startSpy.mock.calls.length < 2; i++) {
       await new Promise((r) => setTimeout(r, 20));
     }
 
     expect(startSpy).toHaveBeenCalledTimes(2);
     expect(capturedSessionIds[1]).toBe(stableSid);
-
-    startSpy.mockRestore();
-    if (existsSync('oneshot_context.test.json')) {
-      unlinkSync('oneshot_context.test.json');
-    }
   });
 });
