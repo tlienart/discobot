@@ -142,10 +142,21 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
 
     if (useSandbox) {
       const settingsPath = this.generateFenceSettings();
-      // Transform command: fence --settings .fence.json -- opencode ...
-      const fenceArgs = ['--settings', settingsPath, '--', commandPath];
+      // Use shell mode (-c) for Fence to handle prompts with special characters safely.
+      // We wrap the inner prompt in double quotes and escape any internal quotes.
+      const escapedPrompt = prompt ? prompt.replace(/"/g, '\\"') : '';
+      const sessionFlag = this.sessionId ? `--session "${this.sessionId}"` : '';
+      const innerCommand = `${commandPath} run --format json ${sessionFlag} --prompt "${escapedPrompt}"`;
+
       commandPath = 'fence';
-      args = [...fenceArgs, ...args];
+      args = ['--settings', settingsPath, '-c', innerCommand];
+    } else {
+      if (this.sessionId) {
+        args.push('--session', this.sessionId);
+      }
+      if (prompt) {
+        args.push('--prompt', prompt);
+      }
     }
 
     console.log(`[Agent] Spawning: ${commandPath} ${args.join(' ')}`);

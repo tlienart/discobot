@@ -129,13 +129,13 @@ describe('Integration: Full Flow', () => {
     expect(mockInteraction.editReply).toHaveBeenCalled();
     expect(mockProcess.start).toHaveBeenCalledWith(expect.stringContaining('Start test session'));
     expect(mockProcess.start).toHaveBeenCalledWith(
-      expect.stringContaining('IMPORTANT: Your response will be displayed on Discord'),
+      expect.stringContaining('[Instruction: Stay under 1900 chars'),
     );
 
     // 2. Simulate opencode output
     mockProcess.emit('output', 'Hello from OpenCode!');
 
-    // Robust wait for send call
+    // Wait for the 3rd message (mirror, startup, and finally output)
     for (let i = 0; i < 200 && mockChannel.send.mock.calls.length < 3; i++) {
       await new Promise((r) => setTimeout(r, 20));
     }
@@ -165,7 +165,7 @@ describe('Integration: Full Flow', () => {
 
     expect(mockProcess.start).toHaveBeenCalledWith(expect.stringContaining('Hello agent!'));
     expect(mockProcess.start).toHaveBeenCalledWith(
-      expect.stringContaining('IMPORTANT: Your response will be displayed on Discord'),
+      expect.stringContaining('[Instruction: Stay under 1900 chars'),
     );
     expect(mockMessage.react).toHaveBeenCalledWith('📥');
   });

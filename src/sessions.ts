@@ -349,13 +349,13 @@ export class SessionManager {
       const logs = readdirSync('logs');
       for (const log of logs) {
         const path = join('logs', log);
-        const stats = statSync(path);
-        if (now - stats.mtimeMs > expiryMs) {
-          try {
+        try {
+          const stats = statSync(path);
+          if (now - stats.mtimeMs > expiryMs) {
             unlinkSync(path);
-          } catch {
-            // Ignore deletion errors
           }
+        } catch {
+          // Skip if already gone or locked
         }
       }
     }
@@ -363,17 +363,17 @@ export class SessionManager {
     const sandboxData = process.env.SANDBOX_WORKSPACE_DIR || './workspace';
     const sessionDbPath = join(sandboxData, '.opencode/data/opencode/session');
     if (existsSync(sessionDbPath)) {
-      const sessions = readdirSync(sessionDbPath);
-      for (const sessionDir of sessions) {
-        const path = join(sessionDbPath, sessionDir);
-        const stats = statSync(path);
-        if (now - stats.mtimeMs > expiryMs) {
-          try {
+      try {
+        const sessions = readdirSync(sessionDbPath);
+        for (const sessionDir of sessions) {
+          const path = join(sessionDbPath, sessionDir);
+          const stats = statSync(path);
+          if (now - stats.mtimeMs > expiryMs) {
             rmSync(path, { recursive: true, force: true });
-          } catch {
-            // Ignore deletion errors
           }
         }
+      } catch {
+        // Skip if error reading session DB
       }
     }
 

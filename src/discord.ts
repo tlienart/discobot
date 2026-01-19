@@ -67,7 +67,7 @@ export class DiscordClient {
     });
 
     const getDiscordPrompt = (userPrompt: string) => {
-      return `${userPrompt}\n\nIMPORTANT: Your response will be displayed on Discord (2000 character limit). Please be concise and summarize large amounts of data. Do not provide raw data dumps.`;
+      return `${userPrompt} [Instruction: Stay under 1900 chars, be concise, summarize raw data]`;
     };
 
     this.client.on(Events.InteractionCreate, async (interaction) => {
