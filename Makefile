@@ -29,3 +29,10 @@ clean:
 # Surgically kill only bot-managed sessions
 clean-bot:
 	pgrep -f "ses_" | xargs kill -9 || true
+
+clean-workspace:
+	@echo "Cleaning sandbox workspace..."
+	@rm -rf workspace/* workspace/.* 2>/dev/null || true
+	@echo "*" > workspace/.gitignore
+	@echo "!.gitignore" >> workspace/.gitignore
+	@echo "Workspace cleaned."
