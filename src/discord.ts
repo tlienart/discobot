@@ -433,7 +433,9 @@ export class DiscordClient {
         console.log(`[Discord] First output received for channel ${channel.id}`);
         firstOutput = false;
       }
-      console.log(`[Discord] Sending output to channel ${channel.id}`);
+      // Log snippet to terminal
+      const snippet = text.length > 50 ? text.substring(0, 47) + '...' : text;
+      console.log(`[Discord] Sending output: ${snippet.replace(/\n/g, ' ')}`);
       channel.send(text).catch(console.error);
     });
 
@@ -453,7 +455,7 @@ export class DiscordClient {
         if (!existingHeartbeat) {
           const heartbeat = setInterval(() => {
             channel.send('⏳ *Still thinking...*').catch(console.error);
-          }, 30000);
+          }, 20000);
           this.heartbeatTimers.set(channel.id, heartbeat);
         }
       } else {

@@ -1,25 +1,22 @@
 import { EventEmitter } from 'events';
 import { spawn, type Subprocess } from 'bun';
-import {
-  openSync,
-  readSync,
-  statSync,
-  closeSync,
-  writeFileSync,
-  readFileSync,
-  existsSync,
-} from 'fs';
+import { writeFileSync, existsSync, mkdirSync } from 'fs';
 import { type Agent } from './agent';
 
 export interface OpenCodeEvent {
   type: string;
   text?: string;
   sessionID?: string;
+  tool?: string;
   part?: {
     type: string;
     text?: string;
     reason?: string;
     sessionID?: string;
+    tool?: string;
+    state?: {
+      input?: unknown;
+    };
   };
 }
 
@@ -32,15 +29,12 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
   private buffer: string = '';
   private stdoutPath: string;
   private stderrPath: string;
-  private stdoutFd: number | null = null;
-  private currentOffset: number = 0;
-  private tailTimer: Timer | null = null;
   private lastActivity: number = Date.now();
   private heartbeatTimer: Timer | null = null;
 
   constructor(private sessionId?: string) {
     super();
-    // Unique log file per turn to avoid lock issues
+    if (!existsSync('logs')) mkdirSync('logs');
     const logId = this.sessionId || `temp_${Date.now()}`;
     const turnId = Date.now();
     this.stdoutPath = `logs/agent_${logId}_${turnId}.stdout`;
@@ -61,33 +55,40 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
     const commandPath = '/opt/homebrew/bin/opencode';
     console.log(`[Agent] Spawning: ${commandPath} ${args.join(' ')}`);
 
-    writeFileSync(this.stdoutPath, '');
-    writeFileSync(this.stderrPath, '');
-
     try {
       this.process = spawn([commandPath, ...args], {
-        stdout: Bun.file(this.stdoutPath),
-        stderr: Bun.file(this.stderrPath),
-        stdin: null, // EOF immediately triggers the run
+        stdout: 'pipe',
+        stderr: 'pipe',
+        stdin: null,
         env: {
           ...process.env,
-          // Removed TERM and FORCE_COLOR to ensure non-interactive JSON output
         },
       });
 
       console.log(`[Agent] PID: ${this.process.pid}`);
       this.startHeartbeat();
-      this.startTailing();
 
-      const code = await this.process.exited;
-      console.log(`[Agent] PID ${this.process.pid} exited with code ${code}`);
+      // Read streams concurrently
+      const stdoutReader =
+        this.process.stdout instanceof ReadableStream
+          ? this.readStream(this.process.stdout, (data) => {
+              this.handleChunk(data);
+              writeFileSync(this.stdoutPath, data, { flag: 'a' });
+            })
+          : Promise.resolve();
 
-      // Final tail to catch trailing data
-      await new Promise((r) => setTimeout(r, 500));
-      this.tailLog();
-      this.stopTailing();
+      const stderrReader =
+        this.process.stderr instanceof ReadableStream
+          ? this.readStream(this.process.stderr, (data) => {
+              this.emit('stderr', data);
+              writeFileSync(this.stderrPath, data, { flag: 'a' });
+            })
+          : Promise.resolve();
+
+      const [code] = await Promise.all([this.process.exited, stdoutReader, stderrReader]);
+      console.log(`[Agent] PID ${this.process?.pid} exited with code ${code}`);
+
       this.stopHeartbeat();
-
       this.emit('exit', code);
     } catch (error) {
       console.error('[Agent] Failed to spawn:', error);
@@ -97,13 +98,29 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
     }
   }
 
+  private async readStream(stream: ReadableStream, callback: (data: string) => void) {
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        callback(decoder.decode(value));
+      }
+    } catch (error) {
+      console.error('[Agent Stream Reader Error]', error);
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
   private startHeartbeat() {
     this.lastActivity = Date.now();
     this.heartbeatTimer = setInterval(() => {
       const inactiveSeconds = Math.floor((Date.now() - this.lastActivity) / 1000);
       if (inactiveSeconds >= 5) {
         console.log(
-          `[Agent Heartbeat] PID ${this.process?.pid} active, no activity for ${inactiveSeconds}s...`,
+          `[Agent Heartbeat] PID ${this.process?.pid} active, no log activity for ${inactiveSeconds}s...`,
         );
         this.emit('heartbeat', inactiveSeconds);
       }
@@ -117,63 +134,10 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
     }
   }
 
-  private startTailing() {
-    this.currentOffset = 0;
-    this.tailTimer = setInterval(() => {
-      this.tailLog();
-    }, 200);
-  }
-
-  private stopTailing() {
-    if (this.tailTimer) {
-      clearInterval(this.tailTimer);
-      this.tailTimer = null;
-    }
-    if (this.stdoutFd !== null) {
-      closeSync(this.stdoutFd);
-      this.stdoutFd = null;
-    }
-  }
-
-  private tailLog() {
-    try {
-      if (existsSync(this.stdoutPath)) {
-        const stats = statSync(this.stdoutPath);
-        if (stats.size > this.currentOffset) {
-          if (this.stdoutFd === null) {
-            this.stdoutFd = openSync(this.stdoutPath, 'r');
-          }
-          const bufferSize = stats.size - this.currentOffset;
-          const readBuffer = Buffer.alloc(bufferSize);
-          readSync(this.stdoutFd, readBuffer, 0, bufferSize, this.currentOffset);
-          this.currentOffset = stats.size;
-          this.lastActivity = Date.now();
-          const data = readBuffer.toString('utf-8');
-          // console.debug(`[Agent] Read ${bufferSize} bytes from stdout`);
-          this.handleChunk(data);
-        }
-      }
-
-      if (existsSync(this.stderrPath)) {
-        const errStats = statSync(this.stderrPath);
-        if (errStats.size > 0) {
-          const errData = readFileSync(this.stderrPath, 'utf-8');
-          if (errData.trim()) {
-            console.warn(`[Agent Stderr] ${errData}`);
-            this.emit('stderr', errData);
-            writeFileSync(this.stderrPath, ''); // Clear to avoid re-emitting
-          }
-        }
-      }
-    } catch (e) {
-      console.error('[Agent Tail Error]', e);
-    }
-  }
-
   private handleChunk(chunk: string) {
     this.buffer += chunk;
     const lines = this.buffer.split('\n');
-    this.buffer = lines.pop() || ''; // Keep last partial line
+    this.buffer = lines.pop() || '';
 
     for (const line of lines) {
       if (!line.trim()) continue;
@@ -181,13 +145,15 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
         const event: OpenCodeEvent = JSON.parse(line);
         this.processEvent(event);
       } catch {
-        // Skip lines that aren't JSON (like ANSI residue)
+        // Skip malformed JSON or partials
       }
     }
   }
 
   private processEvent(event: OpenCodeEvent) {
+    this.lastActivity = Date.now();
     this.emit('event', event);
+
     if (event.type === 'text') {
       const text = event.part?.text || event.text;
       if (text) this.emit('output', text);
@@ -196,6 +162,10 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
     } else if (event.type === 'step_finish') {
       this.emit('thinking', false);
       if (event.part?.reason === 'stop') this.emit('idle');
+    } else if (event.type === 'tool_use') {
+      const toolName = event.part?.tool || event.tool;
+      const input = event.part?.state?.input ? JSON.stringify(event.part.state.input) : '';
+      console.log(`[Agent] Tool Use: ${toolName} ${input}`);
     }
   }
 
@@ -205,7 +175,6 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
 
   async stop() {
     this.process?.kill();
-    this.stopTailing();
     this.stopHeartbeat();
   }
 
