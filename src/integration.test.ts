@@ -131,6 +131,12 @@ describe('Integration: Full Flow', () => {
 
     // 2. Simulate opencode output
     mockProcess.emit('output', 'Hello from OpenCode!');
+
+    // Robust wait for send call
+    for (let i = 0; i < 200 && mockChannel.send.mock.calls.length < 3; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+
     expect(mockChannel.send).toHaveBeenCalledWith('Hello from OpenCode!');
 
     // 3. Simulate thinking status

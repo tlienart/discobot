@@ -16,6 +16,7 @@ export interface OpenCodeEvent {
     tool?: string;
     state?: {
       input?: unknown;
+      output?: unknown;
     };
   };
 }
@@ -174,13 +175,24 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
     } else if (event.type === 'tool_use') {
       const toolName = event.part?.tool || event.tool;
       let inputStr = '';
+      let outputLen = 0;
       if (event.part?.state?.input) {
         inputStr = JSON.stringify(event.part.state.input);
         if (inputStr.length > 200) {
           inputStr = inputStr.substring(0, 197) + '...';
         }
       }
-      console.log(`[Agent] Tool Use: ${toolName} ${inputStr}`);
+      if (typeof event.part?.state?.output === 'string') {
+        outputLen = event.part.state.output.length;
+      }
+      console.log(
+        `[Agent] Tool Use: ${toolName} ${inputStr}${outputLen > 0 ? ` (Output: ${(outputLen / 1024).toFixed(1)}KB)` : ''}`,
+      );
+      if (outputLen > 102400) {
+        console.log(
+          '[Agent] Large tool output detected. LLM will likely take some time to process this context...',
+        );
+      }
     } else {
       console.log(`[Agent] Event: ${event.type}`);
     }

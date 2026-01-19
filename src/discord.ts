@@ -31,6 +31,8 @@ export class DiscordClient {
 
   private typingIntervals: Map<string, Timer> = new Map();
   private heartbeatTimers: Map<string, Timer> = new Map();
+  private thinkingMessages: Map<string, Message> = new Map();
+  private thinkingStartTimes: Map<string, number> = new Map();
 
   // Track if a channel is currently busy with a process
   private channelBusy: Set<string> = new Set();
@@ -418,6 +420,25 @@ export class DiscordClient {
     let firstOutput = true;
     let sessionIdDiscovered = false;
 
+    const cleanupThinking = async () => {
+      const existingInterval = this.typingIntervals.get(channel.id);
+      if (existingInterval) {
+        clearInterval(existingInterval);
+        this.typingIntervals.delete(channel.id);
+      }
+      const existingHeartbeat = this.heartbeatTimers.get(channel.id);
+      if (existingHeartbeat) {
+        clearInterval(existingHeartbeat);
+        this.heartbeatTimers.delete(channel.id);
+      }
+      const msg = this.thinkingMessages.get(channel.id);
+      if (msg) {
+        await msg.delete().catch(() => {});
+        this.thinkingMessages.delete(channel.id);
+      }
+      this.thinkingStartTimes.delete(channel.id);
+    };
+
     session.on('event', (event: OpenCodeEvent) => {
       const sid = event.sessionID || event.part?.sessionID;
       if (sid && !sessionIdDiscovered) {
@@ -428,23 +449,21 @@ export class DiscordClient {
       }
     });
 
-    session.on('output', (text: string) => {
+    session.on('output', async (text: string) => {
       if (firstOutput) {
         console.log(`[Discord] First output received for channel ${channel.id}`);
         firstOutput = false;
       }
+      await cleanupThinking();
       // Log snippet to terminal
       const snippet = text.length > 50 ? text.substring(0, 47) + '...' : text;
       console.log(`[Discord] Sending output: ${snippet.replace(/\n/g, ' ')}`);
       channel.send(text).catch(console.error);
     });
 
-    session.on('thinking', (isThinking: boolean) => {
-      const existingInterval = this.typingIntervals.get(channel.id);
-      const existingHeartbeat = this.heartbeatTimers.get(channel.id);
-
+    session.on('thinking', async (isThinking: boolean) => {
       if (isThinking) {
-        if (!existingInterval) {
+        if (!this.typingIntervals.has(channel.id)) {
           channel.sendTyping().catch(console.error);
           const interval = setInterval(() => {
             channel.sendTyping().catch(console.error);
@@ -452,29 +471,32 @@ export class DiscordClient {
           this.typingIntervals.set(channel.id, interval);
         }
 
-        if (!existingHeartbeat) {
-          const heartbeat = setInterval(() => {
-            channel.send('⏳ *Still thinking...*').catch(console.error);
-          }, 20000);
+        if (!this.heartbeatTimers.has(channel.id)) {
+          this.thinkingStartTimes.set(channel.id, Date.now());
+          const heartbeat = setInterval(async () => {
+            const startTime = this.thinkingStartTimes.get(channel.id);
+            const elapsed = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
+
+            let msg = this.thinkingMessages.get(channel.id);
+            if (!msg) {
+              msg = await channel
+                .send(`⏳ *Still thinking... (${elapsed}s elapsed)*`)
+                .catch(() => undefined);
+              if (msg) this.thinkingMessages.set(channel.id, msg);
+            } else {
+              await msg.edit(`⏳ *Still thinking... (${elapsed}s elapsed)*`).catch(() => {});
+            }
+          }, 15000);
           this.heartbeatTimers.set(channel.id, heartbeat);
         }
       } else {
-        if (existingInterval) {
-          clearInterval(existingInterval);
-          this.typingIntervals.delete(channel.id);
-        }
-        if (existingHeartbeat) {
-          clearInterval(existingHeartbeat);
-          this.heartbeatTimers.delete(channel.id);
-        }
+        await cleanupThinking();
       }
     });
 
     session.on('heartbeat', (seconds: number) => {
       if (seconds === 10) {
-        channel
-          .send('⚠️ **Agent is taking longer than expected to respond...**')
-          .catch(console.error);
+        console.log(`[Discord] Long silence detected for ${channel.id} (${seconds}s)`);
       }
     });
 
@@ -482,14 +504,16 @@ export class DiscordClient {
       channel.send('✅ **Ready for input**').catch(console.error);
     });
 
-    session.on('error', (error: Error) => {
+    session.on('error', async (error: Error) => {
       console.error(`[Session Error] ${channel.id}:`, error);
+      await cleanupThinking();
       channel
         .send(`❌ **Error:** ${error.message || 'Unknown error occurred'}`)
         .catch(console.error);
     });
 
     session.on('exit', async (code: number) => {
+      await cleanupThinking();
       if (code !== 0 && code !== null) {
         channel.send(`⚠️ **Process exited with code ${code}**`).catch(console.error);
 
