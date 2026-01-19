@@ -57,9 +57,10 @@ _This command will automatically check for **Bun** (the runtime), install it if 
 
 ## 🎮 How to Use
 
-1.  **Start a Task:** In your Discord server, use the `/new prompt: "Your request here"` command. The bot will create a new channel in the same category and start the agent.
-2.  **Interact:** Go to the newly created channel. Anything you type there will be sent as input to `opencode`.
-3.  **Control:**
+1.  **Initialize:** In your Discord server, use the `/setup` command and select a category. This is where the bot will create new channels for your sessions.
+2.  **Start a Task:** Use `/new prompt: "Your request here"`. The bot will create a new channel and start the agent.
+3.  **Interact:** Go to the newly created channel. Anything you type there will be sent as input to `opencode`.
+4.  **Control:**
     - `/interrupt`: Stops a running task if it gets stuck.
     - `/resume`: Connects to an existing session ID.
     - `/peek-log`: Shows the raw output from the terminal for debugging.

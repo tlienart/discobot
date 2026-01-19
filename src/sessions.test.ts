@@ -1,17 +1,13 @@
-import { expect, test, describe, spyOn, afterAll, beforeEach } from 'bun:test';
+import { expect, test, describe, spyOn, afterAll } from 'bun:test';
 import { SessionManager } from './sessions';
-import { OpenCodeProcess } from './opencode';
+import { OpenCodeAgent } from './opencode';
 import { MockProcess } from './mock';
 import { unlinkSync, existsSync } from 'fs';
 
-const TEST_DB = 'sessions_unit_test.json';
+const TEST_DB = 'sessions.test.json';
 
 describe('SessionManager', () => {
   afterAll(() => {
-    if (existsSync(TEST_DB)) unlinkSync(TEST_DB);
-  });
-
-  beforeEach(() => {
     if (existsSync(TEST_DB)) unlinkSync(TEST_DB);
   });
 
@@ -20,7 +16,7 @@ describe('SessionManager', () => {
     const session = sm.prepareSession('channel-1');
 
     expect(sm.getSession('channel-1')).toBe(session);
-    expect(session).toBeInstanceOf(OpenCodeProcess);
+    expect(session).toBeInstanceOf(OpenCodeAgent);
   });
 
   test('should prepare mock sessions', async () => {
@@ -32,7 +28,7 @@ describe('SessionManager', () => {
   });
 
   test('should remove sessions', async () => {
-    const stopSpy = spyOn(OpenCodeProcess.prototype, 'stop').mockImplementation(() =>
+    const stopSpy = spyOn(OpenCodeAgent.prototype, 'stop').mockImplementation(() =>
       Promise.resolve(),
     );
 
@@ -50,20 +46,34 @@ describe('SessionManager', () => {
     if (existsSync(TEST_DB)) unlinkSync(TEST_DB);
     const sm1 = new SessionManager(TEST_DB);
     sm1.prepareSession('chan-1', 'ses_test-1');
+    sm1.setCategoryId('cat-123');
 
     const sm2 = new SessionManager(TEST_DB);
     expect(sm2.getChannelMapping().get('chan-1')).toBe('ses_test-1');
+    expect(sm2.getCategoryId()).toBe('cat-123');
   });
 
-  test('should enforce prefixes', () => {
+  test('should enforce prefixes and generate animal names', () => {
     const sm = new SessionManager(TEST_DB);
-    sm.prepareSession('chan-prefix-test', 'my-session');
-    expect(sm.getChannelMapping().get('chan-prefix-test')).toBe('ses_my-session');
+    sm.prepareSession('chan-prefix-test', 'zebra');
+    expect(sm.getChannelMapping().get('chan-prefix-test')).toBe('ses_zebra');
 
-    sm.prepareMockSession('chan-mock-test', 'mock-session');
-    expect(sm.getChannelMapping().get('chan-mock-test')).toBe('ses_mock-session');
+    const sid = sm.generateBotSessionId();
+    expect(sid).toMatch(/^[a-z]+$/);
+  });
 
-    sm.prepareOneShotSession('chan-oneshot-test', 'one-session');
-    expect(sm.getChannelMapping().get('chan-oneshot-test')).toBe('ses_one-session');
+  test('should track session counts per channel', () => {
+    if (existsSync(TEST_DB)) unlinkSync(TEST_DB);
+    const sm = new SessionManager(TEST_DB);
+
+    expect(sm.getCurrentSessionCount('chan-1')).toBe(1);
+    expect(sm.getNextSessionCount('chan-1')).toBe(1);
+    expect(sm.getNextSessionCount('chan-1')).toBe(2);
+    expect(sm.getCurrentSessionCount('chan-1')).toBe(2);
+
+    // Persistence
+    const sm2 = new SessionManager(TEST_DB);
+    expect(sm2.getCurrentSessionCount('chan-1')).toBe(2);
+    expect(sm2.getNextSessionCount('chan-1')).toBe(3);
   });
 });
