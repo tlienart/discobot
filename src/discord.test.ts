@@ -204,7 +204,10 @@ describe('DiscordClient', () => {
     // @ts-expect-error - mock message emission
     client.getClient().emit('messageCreate', mockMessage as Message);
 
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    // Robust wait for start call
+    for (let i = 0; i < 100 && startSpy.mock.calls.length === 0; i++) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
 
     expect(getSessionSpy).toHaveBeenCalledWith('channel-123');
     expect(prepareSpy).toHaveBeenCalledWith('channel-123', 'ses_zebra');

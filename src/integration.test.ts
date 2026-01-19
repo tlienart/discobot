@@ -8,9 +8,26 @@ import { type Agent } from './agent';
 
 describe('Integration: Full Flow', () => {
   let client: DiscordClient;
-  let mockGuild: unknown;
-  let mockChannel: unknown;
-  let mockProcess: unknown;
+  let mockGuild: {
+    channels: {
+      create: ReturnType<typeof mock>;
+      fetch: ReturnType<typeof mock>;
+    };
+  };
+  let mockChannel: EventEmitter & {
+    id: string;
+    send: ReturnType<typeof mock>;
+    sendTyping: ReturnType<typeof mock>;
+    type: ChannelType;
+  };
+  let mockProcess: EventEmitter & {
+    start: ReturnType<typeof mock>;
+    sendInput: ReturnType<typeof mock>;
+    stop: ReturnType<typeof mock>;
+    getPid: ReturnType<typeof mock>;
+    getStdoutPath: ReturnType<typeof mock>;
+    getStderrPath: ReturnType<typeof mock>;
+  };
 
   beforeEach(() => {
     process.env.DISCORD_TOKEN = 'test-token';
@@ -27,7 +44,7 @@ describe('Integration: Full Flow', () => {
     channel.sendTyping = mock(async () => ({}));
     // @ts-expect-error - mock setup
     channel.type = ChannelType.GuildText;
-    mockChannel = channel;
+    mockChannel = channel as unknown as typeof mockChannel;
 
     mockGuild = {
       channels: {
@@ -39,12 +56,18 @@ describe('Integration: Full Flow', () => {
     // Mock SessionManager to avoid actual spawn
     const proc = new EventEmitter();
     // @ts-expect-error - mock setup
-    proc.start = mock(async () => {});
+    proc.start = mock(async () => Promise.resolve());
     // @ts-expect-error - mock setup
     proc.sendInput = mock(() => {});
     // @ts-expect-error - mock setup
     proc.stop = mock(() => {});
-    mockProcess = proc;
+    // @ts-expect-error - mock setup
+    proc.getPid = mock(() => 123);
+    // @ts-expect-error - mock setup
+    proc.getStdoutPath = mock(() => 'stdout');
+    // @ts-expect-error - mock setup
+    proc.getStderrPath = mock(() => 'stderr');
+    mockProcess = proc as unknown as typeof mockProcess;
 
     const mockSessionCreator = (channelId: string) => {
       // @ts-expect-error - accessing private map
@@ -83,24 +106,24 @@ describe('Integration: Full Flow', () => {
       'interactionCreate',
       mockInteraction as unknown as ChatInputCommandInteraction,
     );
-    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // Robust wait for start call
+    for (let i = 0; i < 100 && mockProcess.start.mock.calls.length === 0; i++) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
 
     expect(mockInteraction.deferReply).toHaveBeenCalled();
-    const g = mockGuild as { channels: { create: ReturnType<typeof mock> } };
-    expect(g.channels.create).toHaveBeenCalled();
+    expect(mockGuild.channels.create).toHaveBeenCalled();
     expect(mockInteraction.editReply).toHaveBeenCalled();
-    const p = mockProcess as { start: ReturnType<typeof mock> };
-    expect(p.start).toHaveBeenCalledWith('Start test session');
+    expect(mockProcess.start).toHaveBeenCalledWith('Start test session');
 
     // 2. Simulate opencode output
-    (mockProcess as EventEmitter).emit('output', 'Hello from OpenCode!');
-    const c = mockChannel as { send: ReturnType<typeof mock> };
-    expect(c.send).toHaveBeenCalledWith('Hello from OpenCode!');
+    mockProcess.emit('output', 'Hello from OpenCode!');
+    expect(mockChannel.send).toHaveBeenCalledWith('Hello from OpenCode!');
 
     // 3. Simulate thinking status
-    (mockProcess as EventEmitter).emit('thinking', true);
-    const ct = mockChannel as { sendTyping: ReturnType<typeof mock> };
-    expect(ct.sendTyping).toHaveBeenCalled();
+    mockProcess.emit('thinking', true);
+    expect(mockChannel.sendTyping).toHaveBeenCalled();
 
     // 4. Simulate user input in Discord
     const mockMessage = {
@@ -113,9 +136,13 @@ describe('Integration: Full Flow', () => {
 
     // @ts-expect-error - mock message emission
     discordClient.emit('messageCreate', mockMessage as Message);
-    await new Promise((resolve) => setTimeout(resolve, 20));
 
-    expect(p.start).toHaveBeenCalledWith('Hello agent!');
+    // Robust wait for second start call
+    for (let i = 0; i < 100 && mockProcess.start.mock.calls.length < 2; i++) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    expect(mockProcess.start).toHaveBeenCalledWith('Hello agent!');
     expect(mockMessage.react).toHaveBeenCalledWith('📥');
 
     if (existsSync('integration.test.json')) {
