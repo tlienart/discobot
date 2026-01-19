@@ -65,10 +65,12 @@ This project aims to build a portable bridge between Discord and multiple `openc
   - [x] Remove redundant `/terminate` command.
   - [x] Standardize on "Stable Persistence" (One-Shot with Session IDs).
 
-- [x] **Phase 8: Architectural Refinement & Documentation**
-  - [x] Create `EXPERIMENTATION.md` for mode analysis.
-  - [x] Implement Animal-based Human-Readable Session Names.
-  - [x] Consolidate code into a single robust `OpenCodeAgent`.
+- [ ] **Phase 10: Server-Side Security & Sandboxing**
+  - [x] Architect plan for agent isolation (SANDBOX_PLAN.md).
+  - [ ] Implement Fence-based sandbox wrapper (TASKS_030).
+  - [ ] Implement state relocation (XDG path overrides).
+  - [ ] Implement automated session pruning (GC Sweep).
+  - [ ] Implement Git branch protection patterns.
 
 ## Setup Requirements (Preview)
 

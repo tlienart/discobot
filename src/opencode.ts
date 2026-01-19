@@ -1,7 +1,8 @@
 import { EventEmitter } from 'events';
 import { spawn, type Subprocess } from 'bun';
-import { writeFileSync, existsSync, mkdirSync } from 'fs';
+import { writeFileSync, existsSync, mkdirSync, realpathSync } from 'fs';
 import { type Agent } from './agent';
+import { join } from 'path';
 
 export interface OpenCodeEvent {
   type: string;
@@ -20,6 +21,18 @@ export interface OpenCodeEvent {
     };
   };
 }
+
+const ENV_PASS_LIST = [
+  'GH_TOKEN',
+  'GCLOUD_PROJECT',
+  'OPENAI_API_KEY',
+  'ANTHROPIC_API_KEY',
+  'GOOGLE_API_KEY',
+  'PATH',
+  'HOME',
+  'USER',
+  'LANG',
+];
 
 /**
  * OpenCode Agent: Spawns a new process for every turn (Stable Persistence).
@@ -42,8 +55,78 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
     this.stderrPath = `logs/agent_${logId}_${turnId}.stderr`;
   }
 
+  private getAgentEnv(): Record<string, string> {
+    const env: Record<string, string> = {};
+
+    // 1. Pass whitelisted secrets
+    for (const key of ENV_PASS_LIST) {
+      if (process.env[key]) {
+        env[key] = process.env[key]!;
+      }
+    }
+
+    // 2. Add XDG overrides for sandbox isolation
+    const workspace = process.env.SANDBOX_WORKSPACE_DIR || './workspace';
+    if (!existsSync(workspace)) mkdirSync(workspace, { recursive: true });
+    const absWorkspace = realpathSync(workspace);
+
+    env.XDG_DATA_HOME = join(absWorkspace, '.opencode/data');
+    env.XDG_CONFIG_HOME = join(absWorkspace, '.opencode/config');
+    env.XDG_CACHE_HOME = join(absWorkspace, '.opencode/cache');
+    env.XDG_STATE_HOME = join(absWorkspace, '.opencode/state');
+
+    return env;
+  }
+
+  private generateFenceSettings(): string {
+    const networkMode = process.env.SANDBOX_NETWORK_MODE || 'MERGE';
+    const userDomains = (process.env.WHITE_LIST_DOMAINS || '').split(',').filter(Boolean);
+    const branchPatterns = (process.env.PRIMARY_BRANCH_PATTERNS || 'main,master').split(',');
+
+    const defaultDomains = [
+      'google.com',
+      'wikipedia.org',
+      'github.com',
+      'api.github.com',
+      'npmjs.com',
+      'pypi.org',
+    ];
+    let finalDomains = defaultDomains;
+
+    if (networkMode === 'REPLACE') {
+      finalDomains = userDomains;
+    } else if (networkMode === 'MERGE') {
+      finalDomains = Array.from(new Set([...defaultDomains, ...userDomains]));
+    } else if (networkMode === 'STRICT') {
+      finalDomains = defaultDomains;
+    }
+
+    const settings = {
+      network: {
+        allowedDomains: finalDomains,
+      },
+      filesystem: {
+        allowWrite: ['.'],
+        // Fence rules are relative to sandbox root or absolute
+        deny: ['../.env', '../sessions.json', '../src'],
+      },
+      command: {
+        deny: [
+          'rm -rf /',
+          ...branchPatterns.map((p) => `git checkout ${p}`),
+          ...branchPatterns.map((p) => `git push origin ${p}`),
+          ...branchPatterns.map((p) => `git push origin HEAD:${p}`),
+        ],
+      },
+    };
+
+    const path = join(process.cwd(), '.fence.json');
+    writeFileSync(path, JSON.stringify(settings, null, 2));
+    return path;
+  }
+
   async start(prompt?: string) {
-    const args = ['run', '--format', 'json'];
+    let args = ['run', '--format', 'json'];
 
     if (this.sessionId) {
       args.push('--session', this.sessionId);
@@ -53,7 +136,18 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
       args.push(prompt);
     }
 
-    const commandPath = '/opt/homebrew/bin/opencode';
+    let commandPath = '/opt/homebrew/bin/opencode';
+    const useSandbox = process.env.USE_SANDBOX === 'true';
+    const workspace = process.env.SANDBOX_WORKSPACE_DIR || './workspace';
+
+    if (useSandbox) {
+      const settingsPath = this.generateFenceSettings();
+      // Transform command: fence --settings .fence.json -- opencode ...
+      const fenceArgs = ['--settings', settingsPath, '--', commandPath];
+      commandPath = 'fence';
+      args = [...fenceArgs, ...args];
+    }
+
     console.log(`[Agent] Spawning: ${commandPath} ${args.join(' ')}`);
 
     try {
@@ -61,9 +155,8 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
         stdout: 'pipe',
         stderr: 'pipe',
         stdin: null,
-        env: {
-          ...process.env,
-        },
+        cwd: useSandbox ? realpathSync(workspace) : process.cwd(),
+        env: this.getAgentEnv(),
       });
 
       console.log(`[Agent] PID: ${this.process.pid}`);

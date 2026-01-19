@@ -668,6 +668,25 @@ export class DiscordClient {
   }
 
   async login() {
+    const useSandbox = process.env.USE_SANDBOX === 'true';
+    if (useSandbox) {
+      console.log('[Sandbox] Initializing isolated environment...');
+      const passList = [
+        'GH_TOKEN',
+        'GCLOUD_PROJECT',
+        'OPENAI_API_KEY',
+        'ANTHROPIC_API_KEY',
+        'GOOGLE_API_KEY',
+      ];
+      const activeSecrets = passList.filter((s) => !!process.env[s]);
+      console.log(
+        `[Sandbox] Active Secrets for Agent: ${activeSecrets.length > 0 ? activeSecrets.join(', ') : 'None'}`,
+      );
+
+      const expiry = Number(process.env.SESSION_EXPIRY_HOURS) || 48;
+      this.sessionManager.pruneStaleSessions(expiry);
+    }
+
     await this.client.login(this.token);
     await this.recoverSessions();
   }
