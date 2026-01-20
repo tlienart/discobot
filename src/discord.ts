@@ -68,8 +68,12 @@ export class DiscordClient {
 
     const getDiscordPrompt = (userPrompt: string) => {
       // Flatten prompt to single line and remove shell-unsafe characters (quotes)
-      const flattened = userPrompt.replace(/\n/g, ' ').replace(/\r/g, '').replace(/['"]/g, ''); // Strip quotes to ensure 100% stable shell execution
-      return `${flattened} [Instruction: Be concise, stay under 2000 chars. DO NOT try to read sensitive files. If git clone fails with EPERM, use --template=]`;
+      const flattened = userPrompt.replace(/\n/g, ' ').replace(/\r/g, '').replace(/['"]/g, '');
+
+      // Sanitize instructions: remove leading dashes to prevent them from being mistaken for CLI flags
+      const instruction =
+        'Be concise, stay under 2000 chars. DO NOT try to read sensitive files. If git clone fails with EPERM, use template= (no dashes).';
+      return `${flattened} [Instruction: ${instruction}]`;
     };
 
     this.client.on(Events.InteractionCreate, async (interaction) => {
@@ -119,6 +123,7 @@ export class DiscordClient {
             });
 
             if (channel) {
+              // Passing undefined ensures a fresh session initialization
               const session = this.sessionManager.prepareSession(channel.id);
               this.attachSessionListeners(session, channel as TextChannel);
 

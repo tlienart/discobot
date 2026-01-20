@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import { spawn, type Subprocess } from 'bun';
-import { writeFileSync, existsSync, mkdirSync, realpathSync } from 'fs';
+import { writeFileSync, existsSync, mkdirSync, realpathSync, readdirSync } from 'fs';
 import { type Agent } from './agent';
 import { join } from 'path';
 
@@ -181,12 +181,42 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
     const useSandbox = process.env.USE_SANDBOX === 'true';
     const workspace = process.env.SANDBOX_WORKSPACE_DIR || './workspace';
 
+    // Verify if session exists before trying to use it
+    let activeSessionId = this.sessionId;
+    if (activeSessionId && activeSessionId.startsWith('ses_')) {
+      const homeDir = process.env.HOME || '';
+      // OpenCode session path pattern (note: this is a heuristic)
+      const sessionPath = join(homeDir, '.local/share/opencode/storage/session');
+      // Within sandbox, it's different
+      const sandboxSessionPath = join(realpathSync(workspace), '.opencode/data/opencode/session');
+
+      let found = false;
+      // Check sandbox path first if enabled
+      if (useSandbox) {
+        // We look for any folder starting with the session ID
+        if (existsSync(sandboxSessionPath)) {
+          const sessions = readdirSync(sandboxSessionPath);
+          if (sessions.some((s) => s.startsWith(activeSessionId!))) found = true;
+        }
+      } else {
+        if (existsSync(sessionPath)) {
+          const sessions = readdirSync(sessionPath);
+          if (sessions.some((s) => s.startsWith(activeSessionId!))) found = true;
+        }
+      }
+
+      if (!found) {
+        console.log(`[Agent] Session ${activeSessionId} not found in storage. Starting fresh.`);
+        activeSessionId = undefined;
+      }
+    }
+
     if (useSandbox) {
       const settingsPath = this.generateFenceSettings();
-      // Important: Use -- settings and -- opencode separator to bypass shell interpretation.
+      // Using array-based spawn with '--' separator for Fence.
       finalArgs = ['--settings', settingsPath, '--', commandPath, 'run', '--format', 'json'];
-      if (this.sessionId) {
-        finalArgs.push('--session', this.sessionId);
+      if (activeSessionId) {
+        finalArgs.push('--session', activeSessionId);
       }
       if (prompt) {
         finalArgs.push(prompt);
@@ -194,8 +224,8 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
       commandPath = 'fence';
     } else {
       finalArgs = ['run', '--format', 'json'];
-      if (this.sessionId) {
-        finalArgs.push('--session', this.sessionId);
+      if (activeSessionId) {
+        finalArgs.push('--session', activeSessionId);
       }
       if (prompt) {
         finalArgs.push(prompt);
@@ -267,6 +297,8 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
                   `[Agent] Security violation detected, killing PID ${this.process?.pid}: ${message}`,
                 );
                 this.process?.kill();
+                // Ensure the process exit is captured
+                this.emit('exit', 1);
               }
 
               this.emit('stderr', data);
