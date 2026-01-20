@@ -67,8 +67,8 @@ export class DiscordClient {
     });
 
     const getDiscordPrompt = (userPrompt: string) => {
-      // Flatten prompt to single line and remove shell-unsafe characters
-      const flattened = userPrompt.replace(/\n/g, ' ').replace(/\r/g, '');
+      // Flatten prompt to single line and remove shell-unsafe characters (quotes)
+      const flattened = userPrompt.replace(/\n/g, ' ').replace(/\r/g, '').replace(/['"]/g, ''); // Strip quotes to ensure 100% stable shell execution
       return `${flattened} [Instruction: Stay under 2000 chars, be concise, summarize raw data]`;
     };
 

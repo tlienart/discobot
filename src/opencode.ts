@@ -118,18 +118,18 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
       },
       filesystem: {
         allowWrite: ['.'],
-        // Explicitly deny sensitive host paths and parent directory access
+        // Explicitly deny sensitive host paths
+        // Note: '..' is removed to allow system path resolution (getcwd),
+        // but absolute paths to sensitive files remain blocked.
         denyRead: [
           join(projectRoot, '.env'),
           join(projectRoot, 'sessions.json'),
           join(projectRoot, 'src'),
-          '..',
         ],
         denyWrite: [
           join(projectRoot, '.env'),
           join(projectRoot, 'sessions.json'),
           join(projectRoot, 'src'),
-          '..',
         ],
       },
       command: {
@@ -161,7 +161,7 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
         finalArgs.push('--session', this.sessionId);
       }
       if (prompt) {
-        finalArgs.push(prompt);
+        finalArgs.push('--prompt', prompt);
       }
       commandPath = 'fence';
     } else {
@@ -170,7 +170,7 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
         finalArgs.push('--session', this.sessionId);
       }
       if (prompt) {
-        finalArgs.push(prompt);
+        finalArgs.push('--prompt', prompt);
       }
     }
 
@@ -202,13 +202,18 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
           ? this.readStream(this.process.stderr, (data) => {
               // Real-time violation detection (Fence blocks or OS-level sandbox blocks)
               const lowerData = data.toLowerCase();
-              if (
+              const isViolation =
                 data.includes('fence:') ||
                 lowerData.includes('operation not permitted') ||
-                lowerData.includes('permission denied')
-              ) {
+                lowerData.includes('permission denied');
+
+              // Filter out non-fatal system warnings like getcwd/shell-init
+              const isIgnoredWarning =
+                lowerData.includes('shell-init') || lowerData.includes('getcwd');
+
+              if (isViolation && !isIgnoredWarning) {
                 let message = data.trim();
-                // Extract clean message if it has the fence prefix
+                // Clean up the message if it has the fence prefix
                 const violationMatch = data.match(/fence: (.*)/);
                 if (violationMatch && violationMatch[1]) {
                   message = violationMatch[1];
