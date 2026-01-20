@@ -137,23 +137,7 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
       },
       filesystem: {
         allowWrite: ['.', absWorkspace, '/private/tmp', '/tmp'],
-        allowRead: [
-          '.',
-          absWorkspace,
-          '/usr',
-          '/bin',
-          '/opt/homebrew',
-          '/Library',
-          '/private/etc',
-          '/etc',
-          '/private/var',
-          '/var',
-          '/dev',
-          '/usr/lib',
-          '/usr/share',
-          '/private/tmp',
-          '/tmp',
-        ],
+        allowRead: ['/'],
         // Explicitly deny sensitive host paths
         denyRead: [
           join(projectRoot, '.env'),
@@ -162,6 +146,7 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
           join(homeDir, '.ssh'),
           join(homeDir, '.aws'),
           join(homeDir, '.gitconfig'),
+          join(homeDir, '.gnupg'),
         ],
         denyWrite: [
           join(projectRoot, '.env'),

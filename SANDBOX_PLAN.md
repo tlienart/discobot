@@ -41,9 +41,9 @@ _Note: Users can leave these empty in `.env` to prevent the agent from using the
 
 ### Filesystem Rules
 
-- **Allow Write**: `./workspace`, `/private/tmp`.
-- **Allow Read**: `./workspace`, `/usr`, `/bin`, `/opt/homebrew`, `/Library`, `/private/etc`, `/private/var`, `/dev`, `/usr/lib`, `/usr/share`, `/private/tmp`.
-- **Strict Deny**: `../.env`, `../sessions.json`, `../src/`, `~/.ssh/`, `~/.aws/`, `~/.gitconfig`.
+- **Allow Write**: `./workspace`, `/private/tmp`. (Confined to sandbox and transient paths).
+- **Allow Read**: `/` (Permissive read for system tool dependencies).
+- **Strict Deny**: `../.env`, `../sessions.json`, `../src/`, `~/.ssh/`, `~/.aws/`, `~/.gitconfig`, `~/.gnupg/`. (Absolute lockdown of host secrets).
 
 ### Network Policy
 
