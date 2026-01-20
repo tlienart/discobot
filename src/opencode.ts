@@ -110,14 +110,27 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
       finalDomains = defaultDomains;
     }
 
+    const projectRoot = realpathSync(process.cwd());
+
     const settings = {
       network: {
         allowedDomains: finalDomains,
       },
       filesystem: {
         allowWrite: ['.'],
-        // Fence rules
-        deny: ['../.env', '../sessions.json', '../src'],
+        // Explicitly deny sensitive host paths and parent directory access
+        denyRead: [
+          join(projectRoot, '.env'),
+          join(projectRoot, 'sessions.json'),
+          join(projectRoot, 'src'),
+          '..',
+        ],
+        denyWrite: [
+          join(projectRoot, '.env'),
+          join(projectRoot, 'sessions.json'),
+          join(projectRoot, 'src'),
+          '..',
+        ],
       },
       command: {
         deny: [
@@ -188,9 +201,17 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
         this.process.stderr instanceof ReadableStream
           ? this.readStream(this.process.stderr, (data) => {
               // Real-time violation detection
-              if (data.includes('fence:')) {
+              const lowerData = data.toLowerCase();
+              if (
+                data.includes('fence:') ||
+                lowerData.includes('operation not permitted') ||
+                lowerData.includes('permission denied')
+              ) {
+                let message = data.trim();
+                // Clean up the message if it has the fence prefix
                 const violationMatch = data.match(/fence: (.*)/);
-                const message = violationMatch ? violationMatch[1] : data;
+                if (violationMatch && violationMatch[1]) message = violationMatch[1];
+
                 this.emit('sandbox_violation', message);
               }
               this.emit('stderr', data);
