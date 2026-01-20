@@ -138,6 +138,10 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
           ...branchPatterns.map((p) => `git checkout ${p}`),
           ...branchPatterns.map((p) => `git push origin ${p}`),
           ...branchPatterns.map((p) => `git push origin HEAD:${p}`),
+          // Add sensitive file names to command deny list to trigger loud Fence blocks
+          '.env',
+          'sessions.json',
+          'src/',
         ],
       },
     };
@@ -205,11 +209,14 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
               const isViolation =
                 data.includes('fence:') ||
                 lowerData.includes('operation not permitted') ||
-                lowerData.includes('permission denied');
+                lowerData.includes('permission denied') ||
+                lowerData.includes('command blocked');
 
               // Filter out non-fatal system warnings like getcwd/shell-init
               const isIgnoredWarning =
-                lowerData.includes('shell-init') || lowerData.includes('getcwd');
+                lowerData.includes('shell-init') ||
+                lowerData.includes('getcwd') ||
+                lowerData.includes('not a tty');
 
               if (isViolation && !isIgnoredWarning) {
                 let message = data.trim();
