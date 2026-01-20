@@ -67,7 +67,9 @@ export class DiscordClient {
     });
 
     const getDiscordPrompt = (userPrompt: string) => {
-      return `${userPrompt}\n\nIMPORTANT: Stay under 1900 chars, be concise, summarize raw data.`;
+      // Flatten prompt to single line and remove shell-unsafe characters
+      const flattened = userPrompt.replace(/\n/g, ' ').replace(/\r/g, '');
+      return `${flattened} [Instruction: Stay under 1900 chars, be concise, summarize raw data]`;
     };
 
     this.client.on(Events.InteractionCreate, async (interaction) => {

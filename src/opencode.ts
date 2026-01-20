@@ -126,16 +126,7 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
   }
 
   async start(prompt?: string) {
-    let args = ['run', '--format', 'json'];
-
-    if (this.sessionId) {
-      args.push('--session', this.sessionId);
-    }
-
-    if (prompt) {
-      args.push(prompt);
-    }
-
+    let finalArgs: string[] = [];
     let commandPath = '/opt/homebrew/bin/opencode';
     const useSandbox = process.env.USE_SANDBOX === 'true';
     const workspace = process.env.SANDBOX_WORKSPACE_DIR || './workspace';
@@ -143,29 +134,29 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
     if (useSandbox) {
       const settingsPath = this.generateFenceSettings();
       // Using array-based spawn with '--' separator for Fence.
-      // This bypasses shell interpretation entirely.
-      const fenceArgs = ['--settings', settingsPath, '--', commandPath, 'run', '--format', 'json'];
+      // Positional arguments (the prompt) MUST come last.
+      finalArgs = ['--settings', settingsPath, '--', commandPath, 'run', '--format', 'json'];
       if (this.sessionId) {
-        fenceArgs.push('--session', this.sessionId);
+        finalArgs.push('--session', this.sessionId);
       }
       if (prompt) {
-        fenceArgs.push(prompt);
+        finalArgs.push(prompt);
       }
       commandPath = 'fence';
-      args = fenceArgs;
     } else {
+      finalArgs = ['run', '--format', 'json'];
       if (this.sessionId) {
-        args.push('--session', this.sessionId);
+        finalArgs.push('--session', this.sessionId);
       }
       if (prompt) {
-        args.push(prompt);
+        finalArgs.push(prompt);
       }
     }
 
-    console.log(`[Agent] Spawning: ${commandPath} ${args.join(' ')}`);
+    console.log(`[Agent] Spawning: ${commandPath} ${finalArgs.join(' ')}`);
 
     try {
-      this.process = spawn([commandPath, ...args], {
+      this.process = spawn([commandPath, ...finalArgs], {
         stdout: 'pipe',
         stderr: 'pipe',
         stdin: null,
