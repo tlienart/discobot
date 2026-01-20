@@ -489,9 +489,16 @@ export class DiscordClient {
       const lastTool = this.lastToolUsed.get(channel.id);
       const toolInfo = lastTool ? ` while using **${lastTool}**` : '';
 
-      await channel.send(
-        `🛡️ **Sandbox Security Alert**\nAn action was blocked${toolInfo}:\n\`${message}\`\n\nThe process has been terminated for your safety. You can send a new prompt now.`,
-      );
+      // Truncate message to avoid Discord character limit crash
+      const safeMessage = message.length > 1000 ? message.substring(0, 1000) + '...' : message;
+
+      try {
+        await channel.send(
+          `🛡️ **Sandbox Security Alert**\nAn action was blocked${toolInfo}:\n\`\`\`\n${safeMessage}\n\`\`\`\n\nThe process has been terminated for your safety. You can send a new prompt now.`,
+        );
+      } catch (err) {
+        console.error('[Discord] Failed to send security alert:', err);
+      }
 
       await cleanupThinking(true);
       session.stop().catch(() => {});

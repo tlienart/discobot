@@ -82,6 +82,19 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
     env.XDG_CACHE_HOME = join(absWorkspace, '.opencode/cache');
     env.XDG_STATE_HOME = join(absWorkspace, '.opencode/state');
 
+    // Pre-create standard OpenCode data paths to avoid EPERM on mkdir inside sandbox
+    const paths = [
+      env.XDG_DATA_HOME,
+      env.XDG_CONFIG_HOME,
+      env.XDG_CACHE_HOME,
+      env.XDG_STATE_HOME,
+      join(env.XDG_DATA_HOME, 'opencode/log'),
+      join(env.XDG_DATA_HOME, 'opencode/session'),
+    ];
+    for (const p of paths) {
+      if (!existsSync(p)) mkdirSync(p, { recursive: true });
+    }
+
     return env;
   }
 
@@ -115,15 +128,18 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
 
     const projectRoot = realpathSync(process.cwd());
     const homeDir = process.env.HOME || '';
+    const workspace = process.env.SANDBOX_WORKSPACE_DIR || './workspace';
+    const absWorkspace = realpathSync(workspace);
 
     const settings = {
       network: {
         allowedDomains: finalDomains,
       },
       filesystem: {
-        allowWrite: ['.'],
+        allowWrite: ['.', absWorkspace],
         allowRead: [
           '.',
+          absWorkspace,
           '/usr',
           '/bin',
           '/opt/homebrew',
@@ -147,7 +163,6 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
           join(projectRoot, '.env'),
           join(projectRoot, 'sessions.json'),
           join(projectRoot, 'src'),
-          '..',
         ],
       },
       command: {
@@ -179,7 +194,7 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
 
     if (useSandbox) {
       const settingsPath = this.generateFenceSettings();
-      // Important: Use -- settings and -- opencode separator to bypass shell interpretation.
+      // Using array-based spawn with '--' separator for Fence.
       finalArgs = ['--settings', settingsPath, '--', commandPath, 'run', '--format', 'json'];
       if (this.sessionId) {
         finalArgs.push('--session', this.sessionId);
