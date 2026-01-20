@@ -71,11 +71,13 @@ export class DiscordClient {
       const flattened = userPrompt
         .replace(/\n/g, ' ')
         .replace(/\r/g, '')
-        .replace(/['"()[]{}|&;$<>\\]/g, ''); // Strip all shell-sensitive characters
+        .replace(/['"()]/g, '')
+        .replace(/[[\]]/g, '')
+        .replace(/[{}|&;$<>\\]/g, ''); // Strip all shell-sensitive characters
 
-      // Empowering instructions: encourage tool use while noting the sandbox policy
+      // Sanitize instructions: remove characters that might trigger shell syntax errors
       const instruction =
-        'Be concise and stay under 2000 chars. You are in a secure sandbox. Use tools like bash and git freely to fulfill the request. Accessing project root secrets like .env is strictly forbidden by system policy and will be blocked automatically.';
+        'Be concise and stay under 2000 chars. DO NOT try to read sensitive files. If git clone fails with EPERM use template= without dashes.';
       return `${flattened} Instruction: ${instruction}`;
     };
 

@@ -120,6 +120,7 @@ describe('DiscordClient', () => {
     expect(startSpy).toHaveBeenCalledWith(
       expect.stringContaining('Instruction: Be concise and stay under 2000 chars'),
     );
+
     expect(mockInteraction.editReply).toHaveBeenCalled();
   });
 

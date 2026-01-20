@@ -167,6 +167,7 @@ describe('Integration: Full Flow', () => {
     expect(mockProcess.start).toHaveBeenCalledWith(
       expect.stringContaining('Instruction: Be concise and stay under 2000 chars'),
     );
+
     expect(mockMessage.react).toHaveBeenCalledWith('📥');
   });
 });
