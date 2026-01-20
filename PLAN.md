@@ -65,7 +65,7 @@ This project aims to build a portable bridge between Discord and multiple `openc
   - [x] Remove redundant `/terminate` command.
   - [x] Standardize on "Stable Persistence" (One-Shot with Session IDs).
 
-- [ ] **Phase 10: Server-Side Security & Sandboxing**
+- [x] **Phase 10: Server-Side Security & Sandboxing**
   - [x] Architect plan for agent isolation (SANDBOX_PLAN.md).
   - [x] Implement Fence-based sandbox wrapper (TASKS_030).
   - [x] Implement state relocation (XDG path overrides).

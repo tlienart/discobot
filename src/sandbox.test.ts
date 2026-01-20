@@ -142,4 +142,26 @@ describe('OpenCodeAgent Sandbox Integration', () => {
 
     delete process.env.GH_TOKEN;
   });
+
+  test('Fence should allow gh command', async () => {
+    if (!hasFence) return;
+
+    const agent = new OpenCodeAgent('test-gh-allowed');
+    const settingsPath = (
+      agent as unknown as { generateFenceSettings: () => string }
+    ).generateFenceSettings();
+
+    // Using --version as a safe check that the binary can execute
+    const proc = Bun.spawn(['fence', '--settings', settingsPath, '--', 'gh', '--version'], {
+      cwd: workspaceDir,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+
+    const stdout = await new Response(proc.stdout).text();
+    const exitCode = await proc.exited;
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain('gh version');
+  });
 });

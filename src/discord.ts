@@ -67,13 +67,16 @@ export class DiscordClient {
     });
 
     const getDiscordPrompt = (userPrompt: string) => {
-      // Flatten prompt to single line and remove shell-unsafe characters (quotes)
-      const flattened = userPrompt.replace(/\n/g, ' ').replace(/\r/g, '').replace(/['"]/g, '');
+      // Flatten prompt to single line and remove shell-unsafe characters
+      const flattened = userPrompt
+        .replace(/\n/g, ' ')
+        .replace(/\r/g, '')
+        .replace(/['"()[]{}|&;$<>\\]/g, ''); // Strip all shell-sensitive characters
 
-      // Sanitize instructions: remove leading dashes to prevent them from being mistaken for CLI flags
+      // Sanitize instructions: remove characters that might trigger shell syntax errors
       const instruction =
-        'Be concise, stay under 2000 chars. DO NOT try to read sensitive files. If git clone fails with EPERM, use template= (no dashes).';
-      return `${flattened} [Instruction: ${instruction}]`;
+        'Be concise and stay under 2000 chars. DO NOT try to read sensitive files. If git clone fails with EPERM use template= without dashes.';
+      return `${flattened} Instruction: ${instruction}`;
     };
 
     this.client.on(Events.InteractionCreate, async (interaction) => {
