@@ -471,11 +471,30 @@ export class DiscordClient {
         channel.send(`🆔 **Session Name:** \`${displayName}\``).catch(console.error);
       }
 
+      if (event.type === 'error') {
+        const errorMsg =
+          event.error?.message || event.error?.data?.message || 'Internal Agent Error';
+        channel.send(`❌ **Agent Error:** ${errorMsg}`).catch(console.error);
+      }
+
       // Track tool usage for heartbeat
       const toolName = event.part?.tool || event.tool;
       if (toolName) {
         this.lastToolUsed.set(channel.id, toolName);
       }
+    });
+
+    session.on('sandbox_violation', async (message: string) => {
+      console.warn(`[Sandbox Violation] Channel ${channel.id}: ${message}`);
+      const lastTool = this.lastToolUsed.get(channel.id);
+      const toolInfo = lastTool ? ` while using **${lastTool}**` : '';
+
+      await channel.send(
+        `🛡️ **Sandbox Security Alert**\nAn action was blocked${toolInfo}:\n\`${message}\`\n\n*The process has been terminated for safety.*`,
+      );
+
+      await cleanupThinking(true);
+      session.stop().catch(() => {});
     });
 
     session.on('output', async (text: string) => {

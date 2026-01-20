@@ -9,6 +9,13 @@ export interface OpenCodeEvent {
   text?: string;
   sessionID?: string;
   tool?: string;
+  error?: {
+    name?: string;
+    message?: string;
+    data?: {
+      message?: string;
+    };
+  };
   part?: {
     type: string;
     text?: string;
@@ -180,6 +187,12 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
       const stderrReader =
         this.process.stderr instanceof ReadableStream
           ? this.readStream(this.process.stderr, (data) => {
+              // Real-time violation detection
+              if (data.includes('fence:')) {
+                const violationMatch = data.match(/fence: (.*)/);
+                const message = violationMatch ? violationMatch[1] : data;
+                this.emit('sandbox_violation', message);
+              }
               this.emit('stderr', data);
               writeFileSync(this.stderrPath, data, { flag: 'a' });
             })
