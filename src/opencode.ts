@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import { spawn, type Subprocess } from 'bun';
-import { writeFileSync, existsSync, mkdirSync, realpathSync, readdirSync } from 'fs';
+import { writeFileSync, existsSync, mkdirSync, realpathSync, readdirSync, statSync } from 'fs';
 import { type Agent } from './agent';
 import { join } from 'path';
 
@@ -25,6 +25,8 @@ export interface OpenCodeEvent {
     state?: {
       input?: unknown;
       output?: unknown;
+      status?: string;
+      error?: string;
     };
   };
 }
@@ -187,24 +189,32 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
     let activeSessionId = this.sessionId;
     if (activeSessionId && activeSessionId.startsWith('ses_')) {
       const homeDir = process.env.HOME || '';
-      // OpenCode session path pattern (note: this is a heuristic)
+      // OpenCode session path pattern
       const sessionPath = join(homeDir, '.local/share/opencode/storage/session');
       // Within sandbox, it's different
-      const sandboxSessionPath = join(realpathSync(workspace), '.opencode/data/opencode/session');
+      const sandboxSessionPath = join(
+        realpathSync(workspace),
+        '.opencode/data/opencode/storage/session',
+      );
+
+      const findSession = (basePath: string, sid: string): boolean => {
+        if (!existsSync(basePath)) return false;
+        const dirs = readdirSync(basePath);
+        for (const dir of dirs) {
+          const fullDir = join(basePath, dir);
+          if (statSync(fullDir).isDirectory()) {
+            const files = readdirSync(fullDir);
+            if (files.some((f) => f.startsWith(sid))) return true;
+          }
+        }
+        return false;
+      };
 
       let found = false;
-      // Check sandbox path first if enabled
       if (useSandbox) {
-        // We look for any folder starting with the session ID
-        if (existsSync(sandboxSessionPath)) {
-          const sessions = readdirSync(sandboxSessionPath);
-          if (sessions.some((s) => s.startsWith(activeSessionId!))) found = true;
-        }
+        found = findSession(sandboxSessionPath, activeSessionId);
       } else {
-        if (existsSync(sessionPath)) {
-          const sessions = readdirSync(sessionPath);
-          if (sessions.some((s) => s.startsWith(activeSessionId!))) found = true;
-        }
+        found = findSession(sessionPath, activeSessionId);
       }
 
       if (!found) {

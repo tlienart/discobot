@@ -71,13 +71,11 @@ export class DiscordClient {
       const flattened = userPrompt
         .replace(/\n/g, ' ')
         .replace(/\r/g, '')
-        .replace(/['"()]/g, '')
-        .replace(/[[\]]/g, '')
-        .replace(/[{}|&;$<>\\]/g, ''); // Strip all shell-sensitive characters
+        .replace(/['"()[\]{}|&;$<>\\]/g, ''); // Strip all shell-sensitive characters
 
       // Sanitize instructions: remove characters that might trigger shell syntax errors
       const instruction =
-        'Be concise and stay under 2000 chars. DO NOT try to read sensitive files. If git clone fails with EPERM use template= without dashes.';
+        'Be concise and stay under 2000 chars. You are in a secure sandbox. Always use relative paths within the workspace. Do not use full paths starting with /Users/. If git clone fails with EPERM use git clone --template=/dev/null.';
       return `${flattened} Instruction: ${instruction}`;
     };
 
@@ -487,10 +485,16 @@ export class DiscordClient {
         channel.send(`❌ **Agent Error:** ${errorMsg}`).catch(console.error);
       }
 
-      // Track tool usage for heartbeat
+      // Track tool usage for heartbeat and report failures
       const toolName = event.part?.tool || event.tool;
       if (toolName) {
         this.lastToolUsed.set(channel.id, toolName);
+
+        // Report tool failures in real-time
+        if (event.part?.state?.status === 'failed') {
+          const error = event.part.state.error || 'Unknown tool error';
+          channel.send(`⚠️ **Tool Failed** (${toolName}): \`${error}\``).catch(console.error);
+        }
       }
     });
 
