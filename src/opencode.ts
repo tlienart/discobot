@@ -154,7 +154,6 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
           join(projectRoot, 'src'),
         ],
       },
-
       command: {
         deny: [
           'rm -rf /',
@@ -184,7 +183,7 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
 
     if (useSandbox) {
       const settingsPath = this.generateFenceSettings();
-      // Using array-based spawn with '--' separator for Fence.
+      // Important: Use -- settings and -- opencode separator to bypass shell interpretation.
       finalArgs = ['--settings', settingsPath, '--', commandPath, 'run', '--format', 'json'];
       if (this.sessionId) {
         finalArgs.push('--session', this.sessionId);
