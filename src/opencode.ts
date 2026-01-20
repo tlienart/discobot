@@ -200,7 +200,7 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
       const stderrReader =
         this.process.stderr instanceof ReadableStream
           ? this.readStream(this.process.stderr, (data) => {
-              // Real-time violation detection
+              // Real-time violation detection (Fence blocks or OS-level sandbox blocks)
               const lowerData = data.toLowerCase();
               if (
                 data.includes('fence:') ||
@@ -208,12 +208,20 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
                 lowerData.includes('permission denied')
               ) {
                 let message = data.trim();
-                // Clean up the message if it has the fence prefix
+                // Extract clean message if it has the fence prefix
                 const violationMatch = data.match(/fence: (.*)/);
-                if (violationMatch && violationMatch[1]) message = violationMatch[1];
-
+                if (violationMatch && violationMatch[1]) {
+                  message = violationMatch[1];
+                }
                 this.emit('sandbox_violation', message);
+
+                // Immediate kill to prevent hanging and resource usage
+                console.warn(
+                  `[Agent] Security violation detected, killing PID ${this.process?.pid}: ${message}`,
+                );
+                this.process?.kill();
               }
+
               this.emit('stderr', data);
               writeFileSync(this.stderrPath, data, { flag: 'a' });
             })

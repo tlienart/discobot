@@ -490,7 +490,7 @@ export class DiscordClient {
       const toolInfo = lastTool ? ` while using **${lastTool}**` : '';
 
       await channel.send(
-        `🛡️ **Sandbox Security Alert**\nAn action was blocked${toolInfo}:\n\`${message}\`\n\n*The process has been terminated for safety.*`,
+        `🛡️ **Sandbox Security Alert**\nAn action was blocked${toolInfo}:\n\`${message}\`\n\nThe process has been terminated for your safety. You can send a new prompt now.`,
       );
 
       await cleanupThinking(true);
@@ -504,7 +504,7 @@ export class DiscordClient {
       }
 
       // Check for Discord character limit
-      if (text.length > 1980 && !this.summarizingChannels.has(channel.id)) {
+      if (text.length > 1990 && !this.summarizingChannels.has(channel.id)) {
         console.log(
           `[Discord] Output too long (${text.length} chars) for ${channel.id}. Triggering silent summarization...`,
         );
