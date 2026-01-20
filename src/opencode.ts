@@ -84,6 +84,8 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
     const branchPatterns = (process.env.PRIMARY_BRANCH_PATTERNS || 'main,master').split(',');
 
     const defaultDomains = [
+      'opencode.ai',
+      '*.opencode.ai',
       'google.com',
       'wikipedia.org',
       'github.com',
@@ -133,8 +135,7 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
 
     if (useSandbox) {
       const settingsPath = this.generateFenceSettings();
-      // Using array-based spawn with '--' separator for Fence.
-      // Positional arguments (the prompt) MUST come last.
+      // Important: Use -- settings and -- opencode separator to bypass shell interpretation.
       finalArgs = ['--settings', settingsPath, '--', commandPath, 'run', '--format', 'json'];
       if (this.sessionId) {
         finalArgs.push('--session', this.sessionId);
