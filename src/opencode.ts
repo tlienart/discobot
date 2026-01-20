@@ -225,13 +225,14 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
 
     if (useSandbox) {
       const settingsPath = this.generateFenceSettings();
-      // Using array-based spawn with '--' separator for Fence.
+      // Using array-based spawn with '--' separator for Fence and '--' for opencode run message.
+      // This ensures the prompt is NEVER interpreted as a flag.
       finalArgs = ['--settings', settingsPath, '--', commandPath, 'run', '--format', 'json'];
       if (activeSessionId) {
         finalArgs.push('--session', activeSessionId);
       }
       if (prompt) {
-        finalArgs.push(prompt);
+        finalArgs.push('--', prompt);
       }
       commandPath = 'fence';
     } else {
@@ -240,7 +241,7 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
         finalArgs.push('--session', activeSessionId);
       }
       if (prompt) {
-        finalArgs.push(prompt);
+        finalArgs.push('--', prompt);
       }
     }
 

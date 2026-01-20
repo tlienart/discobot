@@ -73,9 +73,9 @@ export class DiscordClient {
         .replace(/\r/g, '')
         .replace(/['"()[\]{}|&;$<>\\]/g, ''); // Strip all shell-sensitive characters
 
-      // Sanitize instructions: remove characters that might trigger shell syntax errors
+      // Sanitize instructions: remove characters that might trigger shell syntax errors or flag interpretation
       const instruction =
-        'Be concise and stay under 2000 chars. You are in a secure sandbox. Always use relative paths within the workspace. Do not use full paths starting with /Users/. If git clone fails with EPERM use git clone --template=/dev/null.';
+        'Be concise and stay under 2000 chars. You are in a secure sandbox. Always use relative paths within the workspace. Do not use full paths starting with /Users/. If git clone fails with EPERM use template=/dev/null without dashes.';
       return `${flattened} Instruction: ${instruction}`;
     };
 
@@ -579,11 +579,8 @@ export class DiscordClient {
           this.thinkingStartTimes.set(channel.id, Date.now());
 
           // Initial status message
-          const initialElapsed = Math.floor(
-            (Date.now() - (this.thinkingStartTimes.get(channel.id) || Date.now())) / 1000,
-          );
           const msg = await channel
-            .send(`⏳ *Initializing agent workshop... (${initialElapsed}s)*`)
+            .send(`⏳ *Initializing agent workshop... (0s elapsed)*`)
             .catch(() => undefined);
           if (msg) this.thinkingMessages.set(channel.id, msg);
 
@@ -593,21 +590,17 @@ export class DiscordClient {
             const isSummarizing = this.summarizingChannels.has(channel.id);
             const tool = this.lastToolUsed.get(channel.id);
 
-            let statusText = isSummarizing
-              ? 'Synthesizing summary'
-              : elapsed < 10
-                ? 'Initializing agent workshop'
-                : 'Still thinking';
+            let statusText = isSummarizing ? 'Synthesizing summary' : 'Still thinking';
             if (tool) statusText += ` (Using ${tool})`;
 
-            const currentMsg = this.thinkingMessages.get(channel.id);
-            if (!currentMsg) {
-              const newMsg = await channel
+            let msg = this.thinkingMessages.get(channel.id);
+            if (!msg) {
+              msg = await channel
                 .send(`⏳ *${statusText}... (${elapsed}s elapsed)*`)
                 .catch(() => undefined);
-              if (newMsg) this.thinkingMessages.set(channel.id, newMsg);
+              if (msg) this.thinkingMessages.set(channel.id, msg);
             } else {
-              await currentMsg.edit(`⏳ *${statusText}... (${elapsed}s elapsed)*`).catch(() => {});
+              await msg.edit(`⏳ *${statusText}... (${elapsed}s elapsed)*`).catch(() => {});
             }
           }, 10000); // 10 second frequency
           this.heartbeatTimers.set(channel.id, heartbeat);
