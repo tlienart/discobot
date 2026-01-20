@@ -136,19 +136,23 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
         allowedDomains: finalDomains,
       },
       filesystem: {
-        allowWrite: ['.', absWorkspace],
+        allowWrite: ['.', absWorkspace, '/private/tmp', '/tmp'],
         allowRead: [
           '.',
           absWorkspace,
           '/usr',
           '/bin',
           '/opt/homebrew',
-          '/Library/Developer',
+          '/Library',
+          '/private/etc',
           '/etc',
+          '/private/var',
           '/var',
           '/dev',
           '/usr/lib',
           '/usr/share',
+          '/private/tmp',
+          '/tmp',
         ],
         // Explicitly deny sensitive host paths
         denyRead: [
