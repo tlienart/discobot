@@ -97,6 +97,9 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
       'wikipedia.org',
       'github.com',
       'api.github.com',
+      'codeload.github.com',
+      'raw.githubusercontent.com',
+      'objects.githubusercontent.com',
       'npmjs.com',
       'pypi.org',
     ];
@@ -111,6 +114,7 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
     }
 
     const projectRoot = realpathSync(process.cwd());
+    const homeDir = process.env.HOME || '';
 
     const settings = {
       network: {
@@ -118,18 +122,32 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
       },
       filesystem: {
         allowWrite: ['.'],
+        allowRead: [
+          '.',
+          '/usr',
+          '/bin',
+          '/opt/homebrew',
+          '/Library/Developer',
+          '/etc',
+          '/var',
+          '/dev',
+          '/usr/lib',
+          '/usr/share',
+        ],
         // Explicitly deny sensitive host paths
-        // Note: '..' is removed to allow system path resolution (getcwd),
-        // but absolute paths to sensitive files remain blocked.
         denyRead: [
           join(projectRoot, '.env'),
           join(projectRoot, 'sessions.json'),
           join(projectRoot, 'src'),
+          join(homeDir, '.ssh'),
+          join(homeDir, '.aws'),
+          join(homeDir, '.gitconfig'),
         ],
         denyWrite: [
           join(projectRoot, '.env'),
           join(projectRoot, 'sessions.json'),
           join(projectRoot, 'src'),
+          '..',
         ],
       },
       command: {
@@ -142,6 +160,8 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
           '.env',
           'sessions.json',
           'src/',
+          '.ssh',
+          '.aws',
         ],
       },
     };
