@@ -154,6 +154,7 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
           join(projectRoot, 'src'),
         ],
       },
+
       command: {
         deny: [
           'rm -rf /',
@@ -205,6 +206,9 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
     console.log(`[Agent] Spawning: ${commandPath} ${finalArgs.join(' ')}`);
 
     try {
+      const startTime = Date.now();
+      console.log(`[Agent] Spawning PID...`);
+
       this.process = spawn([commandPath, ...finalArgs], {
         stdout: 'pipe',
         stderr: 'pipe',
@@ -213,13 +217,21 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
         env: this.getAgentEnv(),
       });
 
-      console.log(`[Agent] PID: ${this.process.pid}`);
+      console.log(`[Agent] PID: ${this.process.pid} (Spawned in ${Date.now() - startTime}ms)`);
       this.startHeartbeat();
+
+      let firstByteReceived = false;
 
       // Read streams concurrently
       const stdoutReader =
         this.process.stdout instanceof ReadableStream
           ? this.readStream(this.process.stdout, (data) => {
+              if (!firstByteReceived) {
+                firstByteReceived = true;
+                console.log(
+                  `[Agent] First byte received from pipe after ${Date.now() - startTime}ms (Engine Boot complete).`,
+                );
+              }
               this.handleChunk(data);
               writeFileSync(this.stdoutPath, data, { flag: 'a' });
             })

@@ -69,7 +69,7 @@ export class DiscordClient {
     const getDiscordPrompt = (userPrompt: string) => {
       // Flatten prompt to single line and remove shell-unsafe characters (quotes)
       const flattened = userPrompt.replace(/\n/g, ' ').replace(/\r/g, '').replace(/['"]/g, ''); // Strip quotes to ensure 100% stable shell execution
-      return `${flattened} [Instruction: Be concise, stay under 2000 chars. DO NOT try to read sensitive files.]`;
+      return `${flattened} [Instruction: Be concise, stay under 2000 chars. DO NOT try to read sensitive files. If git clone fails with EPERM, use --template=]`;
     };
 
     this.client.on(Events.InteractionCreate, async (interaction) => {
