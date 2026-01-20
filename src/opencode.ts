@@ -161,7 +161,7 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
         finalArgs.push('--session', this.sessionId);
       }
       if (prompt) {
-        finalArgs.push('--prompt', prompt);
+        finalArgs.push(prompt);
       }
       commandPath = 'fence';
     } else {
@@ -170,7 +170,7 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
         finalArgs.push('--session', this.sessionId);
       }
       if (prompt) {
-        finalArgs.push('--prompt', prompt);
+        finalArgs.push(prompt);
       }
     }
 
