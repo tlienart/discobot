@@ -107,6 +107,8 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
       'opencode.ai',
       '*.opencode.ai',
       'google.com',
+      '*.googleapis.com',
+      '*.gstatic.com',
       'wikipedia.org',
       'github.com',
       'api.github.com',
