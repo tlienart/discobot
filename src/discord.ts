@@ -67,15 +67,15 @@ export class DiscordClient {
     });
 
     const getDiscordPrompt = (userPrompt: string) => {
-      // Flatten prompt to single line and remove shell-unsafe characters
+      // Flatten prompt to single line and remove ALL characters that trigger shell syntax errors
       const flattened = userPrompt
         .replace(/\n/g, ' ')
         .replace(/\r/g, '')
-        .replace(/['"()[\]{}|&;$<>\\]/g, ''); // Strip all shell-sensitive characters
+        .replace(/['"()[\]{}|&;$<>\\]/g, ''); // Strip: ' " ( ) [ ] { } | & ; $ < > \
 
-      // Sanitize instructions: remove characters that might trigger shell syntax errors or flag interpretation
+      // Sanitize instructions: remove characters that might trigger shell syntax errors
       const instruction =
-        'Be concise and stay under 2000 chars. You are in a secure sandbox. Always use relative paths within the workspace. Do not use full paths starting with /Users/. If git clone fails with EPERM use template=/dev/null without dashes.';
+        'Be concise and stay under 2000 chars. You are in a secure sandbox. Use tools like bash freely. Accessing project secrets like .env is strictly forbidden.';
       return `${flattened} Instruction: ${instruction}`;
     };
 
