@@ -2,10 +2,14 @@ import { expect, test, describe, afterEach, beforeEach } from 'bun:test';
 import { OpenCodeAgent } from './opencode';
 import { existsSync, unlinkSync, mkdirSync, rmSync, readFileSync } from 'fs';
 import { resolve } from 'path';
+import { spawnSync } from 'child_process';
 
 describe('OpenCodeAgent Sandbox Integration', () => {
   const originalEnv = { ...process.env };
   const workspaceDir = resolve('./test-workspace');
+
+  // Check if 'fence' is available on the current system
+  const hasFence = spawnSync('which', ['fence']).status === 0;
 
   beforeEach(() => {
     process.env.USE_SANDBOX = 'true';
@@ -46,12 +50,13 @@ describe('OpenCodeAgent Sandbox Integration', () => {
   });
 
   test('Fence should actually block access to .env', async () => {
+    if (!hasFence) return; // Skip in CI
+
     const agent = new OpenCodeAgent('test-real-fence-file');
     const settingsPath = (
       agent as unknown as { generateFenceSettings: () => string }
     ).generateFenceSettings();
 
-    // We try to read the .env file from the root from within the workspace
     const proc = Bun.spawn(['fence', '--settings', settingsPath, '--', 'cat', '../.env'], {
       cwd: workspaceDir,
       stderr: 'pipe',
@@ -67,6 +72,8 @@ describe('OpenCodeAgent Sandbox Integration', () => {
   });
 
   test('Fence should allow running whitelisted commands like git status', async () => {
+    if (!hasFence) return; // Skip in CI
+
     const agent = new OpenCodeAgent('test-real-fence-allowed');
     const settingsPath = (
       agent as unknown as { generateFenceSettings: () => string }
@@ -78,13 +85,14 @@ describe('OpenCodeAgent Sandbox Integration', () => {
     });
 
     await proc.exited;
-    // git status might fail because it's not a git repo, but it shouldn't be BLOCKED by fence
     const stderr = await new Response(proc.stderr).text();
     expect(stderr.toLowerCase()).not.toContain('blocked');
     expect(stderr.toLowerCase()).not.toContain('denied');
   });
 
   test('Fence should block forbidden commands like git push origin main', async () => {
+    if (!hasFence) return; // Skip in CI
+
     const agent = new OpenCodeAgent('test-real-fence-cmd');
     const settingsPath = (
       agent as unknown as { generateFenceSettings: () => string }
@@ -111,11 +119,15 @@ describe('OpenCodeAgent Sandbox Integration', () => {
     const env = (agent as unknown as { getAgentEnv: () => Record<string, string> }).getAgentEnv();
     expect(env.GH_TOKEN).toBe('test-token-123');
 
+    if (!hasFence) {
+      delete process.env.GH_TOKEN;
+      return;
+    }
+
     const settingsPath = (
       agent as unknown as { generateFenceSettings: () => string }
     ).generateFenceSettings();
 
-    // Run env command through fence to verify it's passed through
     const proc = Bun.spawn(['fence', '--settings', settingsPath, '--', 'env'], {
       cwd: workspaceDir,
       stdout: 'pipe',
