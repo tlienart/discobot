@@ -129,7 +129,7 @@ describe('Integration: Full Flow', () => {
     expect(mockInteraction.editReply).toHaveBeenCalled();
     expect(mockProcess.start).toHaveBeenCalledWith(expect.stringContaining('Start test session'));
     expect(mockProcess.start).toHaveBeenCalledWith(
-      expect.stringContaining('[Instruction: Stay under 1900 chars'),
+      expect.stringContaining('[Instruction: Stay under 2000 chars'),
     );
 
     // 2. Simulate opencode output
@@ -165,7 +165,7 @@ describe('Integration: Full Flow', () => {
 
     expect(mockProcess.start).toHaveBeenCalledWith(expect.stringContaining('Hello agent!'));
     expect(mockProcess.start).toHaveBeenCalledWith(
-      expect.stringContaining('[Instruction: Stay under 1900 chars'),
+      expect.stringContaining('[Instruction: Stay under 2000 chars'),
     );
     expect(mockMessage.react).toHaveBeenCalledWith('📥');
   });

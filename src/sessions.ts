@@ -355,7 +355,7 @@ export class SessionManager {
             unlinkSync(path);
           }
         } catch {
-          // Ignore
+          // Skip
         }
       }
     }
@@ -373,7 +373,7 @@ export class SessionManager {
           }
         }
       } catch {
-        // Ignore
+        // Skip
       }
     }
 

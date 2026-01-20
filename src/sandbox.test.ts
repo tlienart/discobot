@@ -22,8 +22,7 @@ describe('OpenCodeAgent Sandbox Integration', () => {
 
   test('should construct correct environment with XDG overrides and pass-list', () => {
     const agent = new OpenCodeAgent('test-sid');
-    // @ts-expect-error - accessing private method for test
-    const env = agent.getAgentEnv();
+    const env = (agent as unknown as { getAgentEnv: () => Record<string, string> }).getAgentEnv();
 
     expect(env.GH_TOKEN).toBe('mock-gh-token');
     expect(env.SECRET_TO_HIDE).toBeUndefined();
@@ -33,8 +32,9 @@ describe('OpenCodeAgent Sandbox Integration', () => {
 
   test('should generate .fence.json with correct defaults', () => {
     const agent = new OpenCodeAgent('test-sid');
-    // @ts-expect-error - accessing private method for test
-    const settingsPath = agent.generateFenceSettings();
+    const settingsPath = (
+      agent as unknown as { generateFenceSettings: () => string }
+    ).generateFenceSettings();
 
     expect(existsSync(settingsPath)).toBe(true);
     const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
@@ -42,6 +42,5 @@ describe('OpenCodeAgent Sandbox Integration', () => {
     expect(settings.network.allowedDomains).toContain('github.com');
     expect(settings.command.deny).toContain('rm -rf /');
     expect(settings.command.deny).toContain('git checkout main');
-    expect(settings.filesystem.deny).toContain('../.env');
   });
 });

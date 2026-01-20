@@ -67,10 +67,10 @@ This project aims to build a portable bridge between Discord and multiple `openc
 
 - [ ] **Phase 10: Server-Side Security & Sandboxing**
   - [x] Architect plan for agent isolation (SANDBOX_PLAN.md).
-  - [ ] Implement Fence-based sandbox wrapper (TASKS_030).
-  - [ ] Implement state relocation (XDG path overrides).
-  - [ ] Implement automated session pruning (GC Sweep).
-  - [ ] Implement Git branch protection patterns.
+  - [x] Implement Fence-based sandbox wrapper (TASKS_030).
+  - [x] Implement state relocation (XDG path overrides).
+  - [x] Implement automated session pruning (GC Sweep).
+  - [x] Implement Git branch protection patterns.
 
 ## Setup Requirements (Preview)
 

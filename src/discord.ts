@@ -69,7 +69,7 @@ export class DiscordClient {
     const getDiscordPrompt = (userPrompt: string) => {
       // Flatten prompt to single line and remove shell-unsafe characters
       const flattened = userPrompt.replace(/\n/g, ' ').replace(/\r/g, '');
-      return `${flattened} [Instruction: Stay under 1900 chars, be concise, summarize raw data]`;
+      return `${flattened} [Instruction: Stay under 2000 chars, be concise, summarize raw data]`;
     };
 
     this.client.on(Events.InteractionCreate, async (interaction) => {
@@ -485,7 +485,7 @@ export class DiscordClient {
       }
 
       // Check for Discord character limit
-      if (text.length > 1900 && !this.summarizingChannels.has(channel.id)) {
+      if (text.length > 1980 && !this.summarizingChannels.has(channel.id)) {
         console.log(
           `[Discord] Output too long (${text.length} chars) for ${channel.id}. Triggering silent summarization...`,
         );
@@ -555,7 +555,7 @@ export class DiscordClient {
             } else {
               await msg.edit(`⏳ *${statusText}... (${elapsed}s elapsed)*`).catch(() => {});
             }
-          }, 15000);
+          }, 10000); // 10 second frequency
           this.heartbeatTimers.set(channel.id, heartbeat);
         }
       } else {

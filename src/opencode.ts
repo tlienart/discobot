@@ -109,7 +109,7 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
       },
       filesystem: {
         allowWrite: ['.'],
-        // Fence rules are relative to sandbox root or absolute
+        // Fence rules
         deny: ['../.env', '../sessions.json', '../src'],
       },
       command: {
