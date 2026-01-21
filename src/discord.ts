@@ -326,6 +326,31 @@ export class DiscordClient {
           break;
         }
 
+        case 'bind': {
+          const folder = options.getString('folder');
+          if (!folder) {
+            await interaction.reply({
+              content: '❌ **Error**: Please provide a folder name.',
+              flags: [MessageFlags.Ephemeral],
+            });
+            return;
+          }
+
+          try {
+            const sanitized = this.sessionManager.bindChannelToFolder(channelId, folder);
+            await interaction.reply({
+              content: `✅ **Bound channel to folder:** \`${sanitized}\` in the workspace.\nAll subsequent commands will run in this directory.`,
+            });
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            await interaction.reply({
+              content: `❌ **Error**: ${errorMessage}`,
+              flags: [MessageFlags.Ephemeral],
+            });
+          }
+          break;
+        }
+
         case 'resume': {
           const sessionId = options.getString('session_id');
           if (!sessionId) {
@@ -650,6 +675,15 @@ export class DiscordClient {
       new SlashCommandBuilder()
         .setName('restart')
         .setDescription('Restart the session in this channel (wipe history)'),
+      new SlashCommandBuilder()
+        .setName('bind')
+        .setDescription('Bind this channel to a specific workspace folder')
+        .addStringOption((option) =>
+          option
+            .setName('folder')
+            .setDescription('The name of the folder in the workspace')
+            .setRequired(true),
+        ),
     ].map((command) => command.toJSON());
 
     const rest = new REST({ version: '10' }).setToken(this.token);

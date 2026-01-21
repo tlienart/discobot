@@ -124,6 +124,7 @@ export interface SessionData {
   types: Record<string, 'standard' | 'mock'>;
   sessionCounts: Record<string, number>;
   aliases: Record<string, string>;
+  bindings: Record<string, string>;
 }
 
 export class SessionManager {
@@ -132,6 +133,7 @@ export class SessionManager {
   private channelToType: Map<string, 'standard' | 'mock'> = new Map();
   private channelToCount: Map<string, number> = new Map();
   private aliasToSession: Map<string, string> = new Map();
+  private channelToBinding: Map<string, string> = new Map();
   private categoryId: string | null = null;
   private readonly PERSISTENCE_FILE: string;
   private sandboxManager: SandboxManager | null = null;
@@ -179,6 +181,7 @@ export class SessionManager {
       types: Object.fromEntries(this.channelToType.entries()),
       sessionCounts: Object.fromEntries(this.channelToCount.entries()),
       aliases: Object.fromEntries(this.aliasToSession.entries()),
+      bindings: Object.fromEntries(this.channelToBinding.entries()),
     };
     writeFileSync(this.PERSISTENCE_FILE, JSON.stringify(data, null, 2));
   }
@@ -200,6 +203,9 @@ export class SessionManager {
         }
         if (data.aliases) {
           this.aliasToSession = new Map(Object.entries(data.aliases));
+        }
+        if (data.bindings) {
+          this.channelToBinding = new Map(Object.entries(data.bindings));
         }
         this.categoryId = data.categoryId || null;
       } catch (error) {
@@ -268,13 +274,29 @@ export class SessionManager {
     });
   }
 
+  bindChannelToFolder(channelId: string, folderName: string) {
+    // Sanitize: No slashes, dots at start, etc.
+    const sanitized = folderName.replace(/[^a-zA-Z0-9._-]/g, '');
+    if (!sanitized) throw new Error('Invalid folder name');
+
+    this.channelToBinding.set(channelId, sanitized);
+    this.savePersistence();
+    return sanitized;
+  }
+
+  getBinding(channelId: string) {
+    return this.channelToBinding.get(channelId);
+  }
+
   prepareSession(channelId: string, sessionId?: string): Agent {
     const sid = sessionId ? this.resolveSessionId(sessionId) : undefined;
 
     // Determine the workspace for this session
-    const sessionWorkspace = sid
-      ? join(this.workspacePath, sid)
-      : join(this.workspacePath, `temp_${Date.now()}`);
+    // Priority: 1. Binding, 2. sessionId, 3. temp
+    const binding = this.getBinding(channelId);
+    const folderName = binding || sid || `temp_${Date.now()}`;
+    const sessionWorkspace = join(this.workspacePath, folderName);
+
     if (!existsSync(sessionWorkspace)) {
       mkdirSync(sessionWorkspace, { recursive: true });
       chmodSync(sessionWorkspace, 0o777);
