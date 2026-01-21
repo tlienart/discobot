@@ -75,7 +75,7 @@ export class DiscordClient {
 
       // Sanitize instructions: remove characters that might trigger shell syntax errors
       const instruction =
-        'Be concise and stay under 2000 chars. You are in a secure sandbox. Use tools like bash freely. Accessing project secrets like .env is strictly forbidden.';
+        'Be concise and stay under 2000 chars. You are in a secure sandbox. Always use relative paths within the workspace. Accessing project secrets like .env is strictly forbidden.';
       return `${flattened} Instruction: ${instruction}`;
     };
 

@@ -84,6 +84,10 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
     env.XDG_CACHE_HOME = join(absWorkspace, '.opencode/cache');
     env.XDG_STATE_HOME = join(absWorkspace, '.opencode/state');
 
+    // Force git to use a self-contained config inside the sandbox to avoid host EPERM
+    env.GIT_CONFIG_GLOBAL = join(absWorkspace, '.opencode/config/gitconfig');
+    env.GIT_CONFIG_NOSYSTEM = '1';
+
     // Pre-create standard OpenCode data paths to avoid EPERM on mkdir inside sandbox
     const paths = [
       env.XDG_DATA_HOME,
@@ -149,7 +153,6 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
           join(projectRoot, 'src'),
           join(homeDir, '.ssh'),
           join(homeDir, '.aws'),
-          join(homeDir, '.gitconfig'),
           join(homeDir, '.gnupg'),
         ],
         denyWrite: [
@@ -199,13 +202,17 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
 
       const findSession = (basePath: string, sid: string): boolean => {
         if (!existsSync(basePath)) return false;
-        const dirs = readdirSync(basePath);
-        for (const dir of dirs) {
-          const fullDir = join(basePath, dir);
-          if (statSync(fullDir).isDirectory()) {
-            const files = readdirSync(fullDir);
-            if (files.some((f) => f.startsWith(sid))) return true;
+        try {
+          const dirs = readdirSync(basePath);
+          for (const dir of dirs) {
+            const fullDir = join(basePath, dir);
+            if (statSync(fullDir).isDirectory()) {
+              const files = readdirSync(fullDir);
+              if (files.some((f) => f.startsWith(sid))) return true;
+            }
           }
+        } catch {
+          // Ignore read errors during discovery
         }
         return false;
       };
