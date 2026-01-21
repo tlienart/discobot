@@ -89,6 +89,7 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
         'alclessctl',
         'shell',
         '--plain',
+        '--tty=false', // Ensure non-interactive
         '--workdir',
         this.workspacePath,
         'default',
