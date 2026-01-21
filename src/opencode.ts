@@ -76,16 +76,25 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
 
     if (this.useSandbox) {
       // Wrap with alclessctl
-      // We use --plain to avoid rsyncing, and manage the workspace manually
+      // We use --plain to avoid rsyncing, and manage the workspace manually via --workdir
+      // We escape each argument for sh -c
+      const escapedArgs = args
+        .map((a) => {
+          // Escape single quotes for the sh -c string
+          return "'" + a.replace(/'/g, "'\\''") + "'";
+        })
+        .join(' ');
+
       const sandboxCommand = [
         'alclessctl',
         'shell',
         '--plain',
+        '--workdir',
+        this.workspacePath,
         'default',
-        '--',
         'sh',
         '-c',
-        `cd "${this.workspacePath}" && export PATH="${this.sandboxBinDir}:$PATH" && "${commandPath}" ${args.map((a) => `"${a}"`).join(' ')}`,
+        `export PATH="${this.sandboxBinDir}:$PATH" && "${commandPath}" ${escapedArgs}`,
       ];
       spawnArgs = sandboxCommand;
       console.log(`[Agent] Sandboxed Spawning: ${spawnArgs.join(' ')}`);

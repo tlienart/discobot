@@ -1,6 +1,6 @@
 import { OpenCodeAgent, type OpenCodeEvent } from './opencode';
 import { MockProcess } from './mock';
-import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
+import { writeFileSync, readFileSync, existsSync, mkdirSync, chmodSync } from 'fs';
 import { type Agent } from './agent';
 import { SandboxManager } from './sandbox/manager';
 import { join } from 'path';
@@ -139,9 +139,22 @@ export class SessionManager {
 
   constructor(persistenceFile: string = 'sessions.json') {
     this.PERSISTENCE_FILE = persistenceFile;
-    this.workspacePath = join(process.cwd(), 'workspace');
+
+    const configWorkspace = process.env.SANDBOX_WORKSPACE_DIR || './workspace';
+    if (configWorkspace.startsWith('./') || !configWorkspace.startsWith('/')) {
+      if (process.env.USE_SANDBOX === 'true') {
+        // Use /Users/Shared for sandbox to avoid permission issues with home dir
+        this.workspacePath = join('/Users/Shared', 'discobot-workspace');
+      } else {
+        this.workspacePath = join(process.cwd(), configWorkspace);
+      }
+    } else {
+      this.workspacePath = configWorkspace;
+    }
+
     if (!existsSync(this.workspacePath)) {
       mkdirSync(this.workspacePath, { recursive: true });
+      chmodSync(this.workspacePath, 0o777);
     }
 
     if (process.env.USE_SANDBOX === 'true') {
@@ -153,6 +166,7 @@ export class SessionManager {
       // Assuming the sandbox user's bin dir is accessible or we put it in workspace
       const sandboxBin = join(this.workspacePath, '.bin');
       this.sandboxManager.setupShims(sandboxBin);
+      chmodSync(sandboxBin, 0o777);
     }
 
     this.loadPersistence();
@@ -263,6 +277,7 @@ export class SessionManager {
       : join(this.workspacePath, `temp_${Date.now()}`);
     if (!existsSync(sessionWorkspace)) {
       mkdirSync(sessionWorkspace, { recursive: true });
+      chmodSync(sessionWorkspace, 0o777);
     }
 
     const session = new OpenCodeAgent(sid, {
