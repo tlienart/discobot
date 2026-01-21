@@ -146,7 +146,7 @@ export class SessionManager {
 
     if (process.env.USE_SANDBOX === 'true') {
       console.log('[Manager] Sandbox enabled. Initializing SandboxManager...');
-      this.sandboxManager = new SandboxManager(this.workspacePath);
+      this.sandboxManager = new SandboxManager(this.workspacePath, process.env.SANDBOX_GH_TOKEN);
       this.sandboxManager.start();
 
       // Setup shims for the sandbox user

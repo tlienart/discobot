@@ -6,9 +6,9 @@ export class SandboxManager {
   private bridge: HostBridge;
   private workspacePath: string;
 
-  constructor(workspacePath: string) {
+  constructor(workspacePath: string, sandboxToken?: string) {
     this.workspacePath = workspacePath;
-    this.bridge = new HostBridge(workspacePath);
+    this.bridge = new HostBridge(workspacePath, sandboxToken);
   }
 
   async start() {

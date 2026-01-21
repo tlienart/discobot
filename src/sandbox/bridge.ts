@@ -13,12 +13,14 @@ export interface BridgeRequest {
 export class HostBridge {
   private listener: any = null;
   private socketPath: string;
+  private sandboxToken?: string;
 
-  constructor(workspacePath: string) {
+  constructor(workspacePath: string, sandboxToken?: string) {
     if (!existsSync(workspacePath)) {
       mkdirSync(workspacePath, { recursive: true });
     }
     this.socketPath = join(workspacePath, 'bridge.sock');
+    this.sandboxToken = sandboxToken;
   }
 
   async start() {
@@ -75,6 +77,7 @@ export class HostBridge {
         env: {
           ...process.env,
           ...request.env,
+          GH_TOKEN: this.sandboxToken || process.env.SANDBOX_GH_TOKEN || process.env.GH_TOKEN,
         },
         stdout: 'pipe',
         stderr: 'pipe',
