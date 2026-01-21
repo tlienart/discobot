@@ -5,10 +5,10 @@ This plan outlines the architecture and implementation for sandboxing `opencode`
 ## 1. Goals
 
 - **Footgun Protection**: Prevent `opencode` sessions from accidentally deleting or modifying host system files or the discobot's own source code.
-- **Secret Isolation**: Ensure that secrets from the host user (e.g., SSH keys, AWS credentials) are not accessible to the sandboxed processes.
+- **Secret Isolation**: Ensure that secrets from the host user (e.g., SSH keys, AWS credentials) are not accessible to the sandboxed processes in plaintext.
 - **Full Shell Access**: Allow sessions to install and use tools (`git`, `gh`, `gcloud`, etc.) within their sandbox without affecting the host.
 - **Workspace Persistence**: Support a persistent "workspace" folder where repositories and session data live.
-- **Secure Secret Injection**: Provide a mechanism to pass specific PAT tokens or service account keys to the sandboxed processes.
+- **Secure Secret Usage**: Provide a mechanism for sandboxed processes to use secrets (e.g., for GitHub API or Git push) without ever seeing the raw tokens.
 
 ## 2. Architecture Diagram
 
@@ -18,22 +18,25 @@ This plan outlines the architecture and implementation for sandboxing `opencode`
 |                                                             |
 |  [ Discobot ] <---(Discord Bridge)---> [ Discord Channels ] |
 |       |                                                     |
+|       | [ Host-Side Bridge Service ]                        |
+|       | (Holds GH_TOKEN, AWS_KEYS, etc.)                    |
+|       |                                                     |
 |       | Spawns via `alclessctl shell`                       |
 |       v                                                     |
 |  +-------------------------------------------------------+  |
 |  | Sandbox Environment (User: "alcless_bot-host_default") |  |
 |  |                                                       |  |
 |  |  +-------------------------------------------------+  |  |
-|  |  | Workspace Folder (/Users/Shared/discobot-ws)    |  |  |
-|  |  | (Shared via group permissions or alcless sync)  |  |  |
+|  |  | Workspace Folder (./workspace)                  |  |  |
 |  |  |                                                 |  |  |
 |  |  |  /repo1/                                        |  |  |
 |  |  |  /repo2/                                        |  |  |
 |  |  +-------------------------------------------------+  |  |
 |  |                                                       |  |
-|  |  [ Opencode Process ] <--(Env: GH_TOKEN, etc.)        |  |
+|  |  [ Opencode Process ]                                 |  |
 |  |      |                                                |  |
-|  |      +--> [ Sub-shell / Tools (git, gh) ]             |  |
+|  |      +--> [ Host-Shim: gh/git ]                       |  |
+|  |           (Forwards to Host Bridge)                   |  |
 |  |                                                       |  |
 |  +-------------------------------------------------------+  |
 |                                                             |
@@ -51,43 +54,35 @@ We will use [alcless](https://github.com/AkihiroSuda/alcless) to manage the sand
 
 ### B. Workspace Management
 
-- The **Workspace** will be a dedicated folder (e.g., `./workspace`).
-- **Storage Options**:
-  1. **Sync Mode (Default alcless)**: `alcless` rsyncs the directory to the sandbox user's home, runs the command, and syncs back.
-     - _Pros_: High isolation, no shared folder permission issues.
-     - _Cons_: Slower for large repos, potential conflicts with concurrent sessions.
-  2. **Shared Folder Mode (--plain)**: Use `--plain` and point to a folder that both the host and sandbox user can access.
-     - _Pros_: Fast, no rsync overhead, supports concurrent sessions in different subfolders.
-     - _Cons_: Requires careful permission setup (`chmod 770` + shared group).
-
-**Recommendation**: Start with **Shared Folder Mode** using subfolders for each repository/session to maximize performance and support multiple concurrent sessions.
+- The **Workspace** will be a dedicated folder (e.g., `./workspace` or `/Users/Shared/discobot-workspace`).
+- **Recommendation**: Use `/Users/Shared/discobot-workspace` when `USE_SANDBOX=true`. This avoids permission issues common on macOS when one user (the sandbox) tries to access another user's (the host) home directory.
+- **Mapping**: Each session gets its own subdirectory. `SessionManager` ensures these are created with `0o777` permissions to be accessible by the sandbox user.
 
 ### C. Session Spawning
 
-We will modify `src/opencode.ts` to wrap the `spawn` call:
+We use `alclessctl shell --workdir` to execute commands in the correct context:
 
 ```typescript
-// Instead of: spawn(['opencode', ...args])
-// We use:
 const sandboxCommand = [
   'alclessctl',
   'shell',
   '--plain',
+  '--workdir',
+  workspacePath,
   'default',
-  '--',
   'sh',
   '-c',
-  `cd ${workspacePath} && /opt/homebrew/bin/opencode ${args.join(' ')}`,
+  `export PATH="${sandboxBinDir}:$PATH" && "${commandPath}" ${escapedArgs}`,
 ];
 ```
 
-### D. Secret Management
+### D. Secure Secret Management (Host-Shims)
 
-Secrets will be injected via environment variables during the spawn call.
+To prevent the agent from leaking plaintext secrets (like `GH_TOKEN`), we will NOT pass them as environment variables. Instead, we use a **Host-Shim** approach.
 
-1. **Config**: A `secrets.json` (or encrypted store) will map session/repo IDs to required secrets.
-2. **Injection**: The `OpenCodeAgent` will be passed an `env` object containing the secrets.
-3. **Safety**: We must ensure these secrets are NOT logged in the bridge's `stdout`/`stderr` logging (already partially handled by filtering, but we'll add explicit scrubbing).
+1.  **Host-Side Bridge**: A service running on the host that has access to the secrets.
+2.  **Sandbox Shims**: Small binaries or scripts (e.g., `/usr/local/bin/gh`) in the sandbox that forward their arguments to the Host Bridge.
+3.  **Command Execution**: The Host Bridge executes the real command on the host (with secrets injected) and returns the output to the shim.
 
 ### E. Isolated Tooling
 
@@ -96,7 +91,32 @@ Sessions can use `alcless brew` to install their own tools.
 - These tools will be installed in the sandbox user's home directory.
 - They will NOT interfere with the host's `/opt/homebrew`.
 
-## 4. Testing Strategy
+## 4. Generic Host-Shim Architecture
+
+To make it easy to add new tools (like `gcloud` or `aws-cli`), we will use a generic shim pattern.
+
+### 1. The Bridge Service (Host)
+
+- Listens on a Unix Domain Socket (exposed to the sandbox).
+- Maintains a whitelist of allowed commands.
+- Automatically maps host environment variables (e.g. `GH_TOKEN`) to specific commands.
+
+### 2. The Shim (Sandbox)
+
+- A simple shell script placed in `/usr/local/bin/`.
+- Template:
+  ```bash
+  #!/bin/bash
+  # Send command name and args to host bridge
+  exec-on-host "$(basename "$0")" "$@"
+  ```
+
+### 3. Setup Friction
+
+- **User**: Just adds `GH_TOKEN=...` to the host `.env`.
+- **Bot**: Automatically creates the shim in the sandbox during session initialization.
+
+## 5. Testing Strategy
 
 We will implement a standalone testing suite in `scripts/verify-sandbox.ts` to test the setup without the Discord bridge:
 
@@ -104,13 +124,11 @@ We will implement a standalone testing suite in `scripts/verify-sandbox.ts` to t
    - Attempt to read `~/.ssh/config` of the host user (Should Fail).
    - Attempt to write to `/usr/local/bin` (Should Fail).
    - Read/Write to the designated `workspace` (Should Succeed).
-2. **Secret Test**:
-   - Pass a dummy secret `SANDBOX_TEST_SECRET`.
-   - Run a command that echoes it (Verifies injection).
-   - Verify it doesn't appear in the host's process list or standard logs.
+2. **Shim Test**:
+   - Run `gh auth status` via the shim.
+   - Verify it succeeds but `echo $GH_TOKEN` is empty in the sandbox.
 3. **Tooling Test**:
    - Run `git --version` and `gh --version` within the sandbox.
-   - Verify they can be configured with the injected secrets.
 
 ## 6. Directory Structure & Mapping
 
@@ -130,98 +148,55 @@ workspace/
 - Commands sent to that channel will be executed with `cwd` set to that folder.
 - Default behavior for new channels: Create a new subfolder in `workspace/`.
 
-## 7. Testing Strategy (Isolated)
+## 7. Dedicated Secret Isolation (Hardening)
 
-We will provide a `scripts/sandbox-test.ts` utility that can be run directly:
+To prevent the sandbox from accidentally using the host's primary credentials (e.g., your personal `GH_TOKEN`), we will implement **Dedicated Secret Isolation**.
 
-```bash
-# Test isolation
-bun scripts/sandbox-test.ts --test isolation
+### The Mechanism
 
-# Test secret injection
-bun scripts/sandbox-test.ts --test secrets --secret MY_KEY=value
+1.  **Environment Variable Selection**: The `SessionManager` will look for a specific `SANDBOX_GH_TOKEN` in the `.env` file.
+2.  **Bridge Injection**: This token is passed to the `HostBridge`. When the bridge executes a command, it explicitly sets `GH_TOKEN` using the value of `SANDBOX_GH_TOKEN`.
+3.  **Override Priority**: The dedicated sandbox token will always override the host's default `GH_TOKEN` or system keyring during bridge execution.
 
-# Test tool installation
-bun scripts/sandbox-test.ts --test tools --install gh
-```
+### Verification (The "Stunt" Test)
 
-## 8. Step-by-Step Implementation & Verification Plan
+We will use `scripts/verify-dedicated-token.ts` to prove isolation:
 
-This section breaks down the implementation into small, verifiable chunks.
+1.  Set `GH_TOKEN=TOKEN_A` (Host Primary).
+2.  Set `SANDBOX_GH_TOKEN=TOKEN_B` (Sandbox Dedicated).
+3.  Run `gh auth status` via the sandbox shim.
+4.  **Verification**: The output must show `TOKEN_B` (or the account associated with it), confirming that `TOKEN_A` was never used or seen by the sandbox.
 
-### Step 1: `alcless` Baseline Verification
+## 8. PR-Based Roadmap
 
-- **Task**: Ensure `alcless` is correctly installed and the sandbox user is functional.
-- **Verification**:
-  ```bash
-  alclessctl shell default -- whoami
-  # Should return "alcless_bot-host_default" (or similar)
-  ```
+The implementation will be carried out in the following sequential Pull Requests into the `alcoholless` branch.
 
-### Step 2: Secret Injection & Tooling (Isolated)
+### [PR #1] Baseline Sandbox Environment (Merged)
 
-- **Task**: Test if we can pass a PAT token and use it with the `gh` CLI inside the sandbox.
-- **Test Script**: `scripts/verify-gh-auth.ts`
-  1.  Spawn `alclessctl shell --plain default` with `GH_TOKEN` in the environment.
-  2.  Inside the shell: `brew install gh` (if not present) or use a pre-installed one.
-  3.  Run `gh auth status`.
-- **Verification**: The output should show the user associated with the PAT token, confirming environment variable inheritance works through the `su/sudo` layers of `alcless`.
+- Added `scripts/verify-alcless.sh`.
 
-### Step 3: Dumb Shell Wrapper (Mock Opencode)
+### [PR #2] Secret Injection & GH Authentication (Merged)
 
-- **Task**: Create a simple shell script `scripts/dumb-opencode.sh` that mimics the `opencode run` interface (accepting a prompt and returning output) but simply executes it as a shell command.
-- **Goal**: Decouple sandbox issues from `opencode` internal complexity.
-- **Verification**:
-  1.  Point `src/opencode.ts` to `scripts/dumb-opencode.sh`.
-  2.  Send a message from Discord: `ls -la`.
-  3.  Verify the bridge returns the directory listing of the _sandbox workspace_, not the host.
+- Verified environment variable injection (Initial approach, now being superseded by Shims).
 
-### Step 4: Boundary & Persistence Checks
+### [PR #3] Host-Side Bridge & Shims
 
-- **Task**: Run a suite of scripts to verify the "walls" of the sandbox.
-- **Verification**:
-  - `ls ~/.ssh` -> Permission Denied.
-  - `touch ./workspace/test.txt` -> Success.
-  - Exit session, start new session, `ls ./workspace/test.txt` -> Success (Persistence check).
+- **Contents**: Implementation of the Host-Side Bridge Service and the generic shim mechanism for `gh` and `git`.
+- **Goal**: Securely use `gh` inside the sandbox without exposing `GH_TOKEN` to the sandbox environment.
+- **Verification**: Run `gh auth status` inside the sandbox; it should show logged in, while `env | grep GH_TOKEN` is empty.
 
-### Step 5: Full `opencode` Integration
-
-- **Task**: Switch the bridge to use the real `opencode` binary, wrapped in `alcless`.
-- **Verification**:
-  1.  Connect to a Discord channel.
-  2.  Ask it to "clone this repo and check the git log".
-  3.  Verify it uses the injected `GH_TOKEN` and clones into the sandboxed `workspace/`.
-
-## 10. PR-Based Roadmap
-
-The implementation will be carried out in the following sequential Pull Requests into the `alcoholless` branch. Each PR must pass its specific verification steps before being merged.
-
-### [PR #1] Baseline Sandbox Environment
-
-- **Contents**: `scripts/verify-alcless.sh`.
-- **Goal**: Ensure `alcless` is installed and the `alclessctl` command works for the current user.
-- **Verification**: Run `./scripts/verify-alcless.sh`. It should output the sandbox username and verify that the sandbox user exists.
-
-### [PR #2] Secret Injection & GH Authentication
-
-- **Contents**: `scripts/verify-gh-auth.ts`, configuration for secret mapping.
-- **Goal**: Demonstrate that a `GH_TOKEN` passed from the host correctly authenticates the `gh` CLI inside the sandbox.
-- **Verification**: Run `bun scripts/verify-gh-auth.ts`. Success means `gh auth status` returns a valid login.
-
-### [PR #3] Bridge Integration with Mocked Agent
+### [PR #4] Bridge Integration with Mocked Agent
 
 - **Contents**: `scripts/dumb-opencode.sh`, modifications to `src/opencode.ts` and `src/sessions.ts`.
 - **Goal**: Connect the Discord bridge to the sandbox using a "dumb shell" wrapper.
-- **Verification**: Send a command like `ls -la` from Discord. The bot should reply with the directory listing of the sandbox workspace.
+- **Verification**: Send commands from Discord; verify they run as the sandbox user in the correct workspace.
 
-### [PR #4] Workspace Logic & Persistence
+### [PR #5] Workspace Logic & Persistence
 
-- **Contents**: Logic for managing `workspace/` subfolders per channel/session. `scripts/test-persistence.ts`.
-- **Goal**: Ensure files created in one turn persist in the next, and that sessions are isolated into their own folders.
-- **Verification**: Create a file via Discord, restart the bot, and verify the file is still accessible in that channel's session.
+- **Contents**: Logic for managing `workspace/` subfolders per channel/session.
+- **Goal**: Ensure persistence and isolation between channels.
 
-### [PR #5] Full Opencode Integration
+### [PR #6] Full Opencode Integration
 
 - **Contents**: Switching `src/opencode.ts` to use the real `opencode` binary.
-- **Goal**: Fully functional sandboxed `opencode` with secret injection.
-- **Verification**: Ask the bot to perform a complex task (e.g., "Check the status of this repo and create a branch") and verify it succeeds within the sandbox.
+- **Goal**: Fully functional sandboxed `opencode`.
