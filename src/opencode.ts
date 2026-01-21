@@ -21,6 +21,12 @@ export interface OpenCodeEvent {
   };
 }
 
+export interface OpenCodeAgentOptions {
+  workspacePath?: string;
+  useSandbox?: boolean;
+  sandboxBinDir?: string;
+}
+
 /**
  * OpenCode Agent: Spawns a new process for every turn (Stable Persistence).
  * Reuses the same session ID to preserve context via OpenCode's database.
@@ -32,9 +38,19 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
   private stderrPath: string;
   private lastActivity: number = Date.now();
   private heartbeatTimer: Timer | null = null;
+  private workspacePath: string;
+  private useSandbox: boolean;
+  private sandboxBinDir?: string;
 
-  constructor(private sessionId?: string) {
+  constructor(
+    private sessionId?: string,
+    options: OpenCodeAgentOptions = {},
+  ) {
     super();
+    this.workspacePath = options.workspacePath || process.cwd();
+    this.useSandbox = options.useSandbox || false;
+    this.sandboxBinDir = options.sandboxBinDir;
+
     if (!existsSync('logs')) mkdirSync('logs');
     const logId = this.sessionId || `temp_${Date.now()}`;
     const turnId = Date.now();
@@ -53,17 +69,37 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
       args.push(prompt);
     }
 
-    const commandPath = '/opt/homebrew/bin/opencode';
-    console.log(`[Agent] Spawning: ${commandPath} ${args.join(' ')}`);
+    const commandPath = process.env.OPENCODE_BINARY || '/opt/homebrew/bin/opencode';
+
+    let spawnArgs: string[];
+    const spawnEnv = { ...process.env };
+
+    if (this.useSandbox) {
+      // Wrap with alclessctl
+      // We use --plain to avoid rsyncing, and manage the workspace manually
+      const sandboxCommand = [
+        'alclessctl',
+        'shell',
+        '--plain',
+        'default',
+        '--',
+        'sh',
+        '-c',
+        `cd "${this.workspacePath}" && export PATH="${this.sandboxBinDir}:$PATH" && "${commandPath}" ${args.map((a) => `"${a}"`).join(' ')}`,
+      ];
+      spawnArgs = sandboxCommand;
+      console.log(`[Agent] Sandboxed Spawning: ${spawnArgs.join(' ')}`);
+    } else {
+      spawnArgs = [commandPath, ...args];
+      console.log(`[Agent] Spawning: ${spawnArgs.join(' ')}`);
+    }
 
     try {
-      this.process = spawn([commandPath, ...args], {
+      this.process = spawn(spawnArgs, {
         stdout: 'pipe',
         stderr: 'pipe',
         stdin: null,
-        env: {
-          ...process.env,
-        },
+        env: spawnEnv,
       });
 
       console.log(`[Agent] PID: ${this.process.pid}`);

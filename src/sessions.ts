@@ -1,7 +1,9 @@
 import { OpenCodeAgent, type OpenCodeEvent } from './opencode';
 import { MockProcess } from './mock';
-import { writeFileSync, readFileSync, existsSync } from 'fs';
+import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import { type Agent } from './agent';
+import { SandboxManager } from './sandbox/manager';
+import { join } from 'path';
 
 const ANIMALS = [
   'panda',
@@ -132,9 +134,27 @@ export class SessionManager {
   private aliasToSession: Map<string, string> = new Map();
   private categoryId: string | null = null;
   private readonly PERSISTENCE_FILE: string;
+  private sandboxManager: SandboxManager | null = null;
+  private readonly workspacePath: string;
 
   constructor(persistenceFile: string = 'sessions.json') {
     this.PERSISTENCE_FILE = persistenceFile;
+    this.workspacePath = join(process.cwd(), 'workspace');
+    if (!existsSync(this.workspacePath)) {
+      mkdirSync(this.workspacePath, { recursive: true });
+    }
+
+    if (process.env.USE_SANDBOX === 'true') {
+      console.log('[Manager] Sandbox enabled. Initializing SandboxManager...');
+      this.sandboxManager = new SandboxManager(this.workspacePath, process.env.SANDBOX_GH_TOKEN);
+      this.sandboxManager.start();
+
+      // Setup shims for the sandbox user
+      // Assuming the sandbox user's bin dir is accessible or we put it in workspace
+      const sandboxBin = join(this.workspacePath, '.bin');
+      this.sandboxManager.setupShims(sandboxBin);
+    }
+
     this.loadPersistence();
   }
 
@@ -236,7 +256,20 @@ export class SessionManager {
 
   prepareSession(channelId: string, sessionId?: string): Agent {
     const sid = sessionId ? this.resolveSessionId(sessionId) : undefined;
-    const session = new OpenCodeAgent(sid);
+
+    // Determine the workspace for this session
+    const sessionWorkspace = sid
+      ? join(this.workspacePath, sid)
+      : join(this.workspacePath, `temp_${Date.now()}`);
+    if (!existsSync(sessionWorkspace)) {
+      mkdirSync(sessionWorkspace, { recursive: true });
+    }
+
+    const session = new OpenCodeAgent(sid, {
+      workspacePath: sessionWorkspace,
+      useSandbox: process.env.USE_SANDBOX === 'true',
+      sandboxBinDir: join(this.workspacePath, '.bin'),
+    });
     this.sessions.set(channelId, session);
 
     if (sid) {
