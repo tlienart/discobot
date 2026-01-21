@@ -59,7 +59,7 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
   }
 
   async start(prompt?: string) {
-    let args = ['run', '--format', 'json'];
+    const args = ['run', '--format', 'json'];
 
     if (this.sessionId) {
       args.push('--session', this.sessionId);
@@ -72,7 +72,7 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
     const commandPath = process.env.OPENCODE_BINARY || '/opt/homebrew/bin/opencode';
 
     let spawnArgs: string[];
-    let spawnEnv = { ...process.env };
+    const spawnEnv = { ...process.env };
 
     if (this.useSandbox) {
       // Wrap with alclessctl

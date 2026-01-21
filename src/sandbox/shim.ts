@@ -12,7 +12,7 @@ async function main() {
     const socket = await connect({
       unix: socketPath,
       socket: {
-        data(socket, data) {
+        data(_socket, data) {
           const lines = data.toString().split('\n');
           for (const line of lines) {
             if (!line.trim()) continue;
@@ -28,16 +28,16 @@ async function main() {
                 console.error(`[Shim Error] ${msg.message}`);
                 process.exit(1);
               }
-            } catch (e) {
+            } catch {
               // Handle potential partial JSON or multiple messages
             }
           }
         },
-        error(socket, error) {
+        error(_socket, error) {
           console.error(`[Shim] Connection error: ${error}`);
           process.exit(1);
         },
-        end(socket) {
+        end(_socket) {
           // Connection closed
         },
       },

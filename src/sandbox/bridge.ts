@@ -1,4 +1,4 @@
-import { listen } from 'bun';
+import { listen, type Socket, type SocketListener } from 'bun';
 import { spawn } from 'bun';
 import { existsSync, unlinkSync, mkdirSync, chmodSync } from 'fs';
 import { join } from 'path';
@@ -11,7 +11,7 @@ export interface BridgeRequest {
 }
 
 export class HostBridge {
-  private listener: any = null;
+  private listener: SocketListener<unknown> | null = null;
   private socketPath: string;
   private sandboxToken?: string;
 
@@ -53,7 +53,7 @@ export class HostBridge {
     chmodSync(this.socketPath, 0o777);
   }
 
-  private async handleRequest(socket: any, request: BridgeRequest) {
+  private async handleRequest(socket: Socket<unknown>, request: BridgeRequest) {
     console.log(
       `[Bridge] Executing: ${request.command} ${request.args.join(' ')} (cwd: ${request.cwd})`,
     );
@@ -100,7 +100,11 @@ export class HostBridge {
     }
   }
 
-  private async streamToSocket(stream: ReadableStream, socket: any, type: 'stdout' | 'stderr') {
+  private async streamToSocket(
+    stream: ReadableStream,
+    socket: Socket<unknown>,
+    type: 'stdout' | 'stderr',
+  ) {
     const reader = stream.getReader();
     try {
       while (true) {
