@@ -60,7 +60,27 @@ _This command will automatically check for **Bun** (the runtime), install it if 
 1.  **Initialize:** In your Discord server, use the `/setup` command and select a category. This is where the bot will create new channels for your sessions.
 2.  **Start a Task:** Use `/new prompt: "Your request here"`. The bot will create a new channel and start the agent.
 3.  **Interact:** Go to the newly created channel. Anything you type there will be sent as input to `opencode`.
-4.  **Control:**
-    - `/interrupt`: Stops a running task if it gets stuck.
-    - `/resume`: Connects to an existing session ID.
-    - `/peek-log`: Shows the raw output from the terminal for debugging.
+
+## 📜 Commands
+
+The bridge uses Discord Slash Commands for all interactions.
+
+### 🛠️ Configuration & Setup
+
+- **`/setup [category]`**: Sets the Discord category where the bot will create new session channels. **(Required first step)**
+- **`/bind [folder]`**: Binds the current channel to a specific folder in the workspace (e.g., `folder: my-repo`). All subsequent agent tasks in this channel will run within that directory.
+- **`/new [prompt]`**: Creates a new channel, assigns it a session name (e.g., `panda`), and starts the agent with your initial prompt.
+
+### 🎮 Session Control
+
+- **`/interrupt`**: Immediately kills the running `opencode` process in the current channel.
+- **`/resume [session_id]`**: Attaches the current channel to an existing session (using its ID or animal alias).
+- **`/restart`**: Stops the current process, wipes the conversation history, and starts a fresh session in the same channel.
+- **`/peek-log`**: Displays the last 800 characters of `stdout` and `stderr` for the current session.
+
+### 🔍 Utility & Debugging
+
+- **`/debug`**: Shows the bot's status, including active sessions and permission checks.
+- **`/reset`**: Force-clears the "busy" lock for a channel if an agent task is incorrectly marked as still running.
+- **`/ping`**: Verifies the bot is online and responsive.
+- **`/test-bridge [message]`**: Starts a mock session that echoes your input in uppercase to test the end-to-end communication without using an LLM.
