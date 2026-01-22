@@ -35,3 +35,11 @@ repro_stall.ts
 
 # OS specific files
 .DS_Store
+
+# Sandbox workspace
+workspace/
+
+# Runtime artifacts
+*.sock
+*.port
+proxy.log

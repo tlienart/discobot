@@ -334,7 +334,7 @@ export class SessionManager {
     const ghostAuth = {
       google: { type: 'api', key: 'SANDBOX_MANAGED_GHOST_KEY_1234567890' },
       openai: { type: 'api', key: 'sk-sandbox-managed-ghost-key-1234567890' },
-      anthropic: { type: 'api', key: 'x-ghost-managed-key-1234567890' },
+      anthropic: { type: 'api', key: 'sk-ant-sid-sandbox-managed-ghost-key' },
     };
     writeFileSync(join(sandboxDataDir, 'auth.json'), JSON.stringify(ghostAuth, null, 2));
 
@@ -357,6 +357,7 @@ python3 "${this.workspacePath}/.bin/http_to_unix.py" ${sandboxLocalPort} > /dev/
 BRIDGE_PID=$!
 
 sleep 0.5
+# We use 127.0.0.1 explicitly to avoid IPv6 issues
 export GOOGLE_GENERATIVE_AI_BASE_URL="http://127.0.0.1:${sandboxLocalPort}/google"
 export OPENAI_BASE_URL="http://127.0.0.1:${sandboxLocalPort}/openai/v1"
 export ANTHROPIC_BASE_URL="http://127.0.0.1:${sandboxLocalPort}/anthropic"

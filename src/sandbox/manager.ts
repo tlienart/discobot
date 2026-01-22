@@ -44,8 +44,8 @@ export class SandboxManager {
           this.chmodRecursive(join(path, item), mode);
         }
       }
-    } catch (error) {
-      console.warn(`[Sandbox] Failed to chmod ${path}:`, error);
+    } catch {
+      // Ignore
     }
   }
 

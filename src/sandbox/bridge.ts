@@ -58,6 +58,7 @@ export class HostBridge {
             const request: BridgeRequest = JSON.parse(data.toString());
             await this.handleRequest(socket, request);
           } catch (error) {
+            console.error('[Bridge] Error handling data:', error);
             socket.write(JSON.stringify({ type: 'error', message: String(error) }));
             socket.end();
           }

@@ -71,13 +71,9 @@ export class DiscordClient {
     };
 
     this.client.on(Events.InteractionCreate, async (interaction) => {
-      console.log(
-        `[Discord] Interaction received: ${interaction.isChatInputCommand() ? 'Slash Command' : 'Other'}`,
-      );
       if (!interaction.isChatInputCommand()) return;
 
       const { commandName, options, channelId, guild } = interaction;
-      console.log(`[Discord] Command: ${commandName}`);
 
       switch (commandName) {
         case 'ping':
@@ -116,8 +112,9 @@ export class DiscordClient {
               content: `✅ Bound to workspace folder: \`${sanitized}\``,
             });
           } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
             await interaction.reply({
-              content: `❌ Error: ${error instanceof Error ? error.message : String(error)}`,
+              content: `❌ Error: ${msg}`,
               flags: [MessageFlags.Ephemeral],
             });
           }
@@ -131,7 +128,7 @@ export class DiscordClient {
             let parentId = this.sessionManager.getCategoryId();
             if (!parentId && guild) {
               const channels = await guild.channels.fetch();
-              // @ts-expect-error - fetch() returns a Collection
+              // @ts-expect-error - Collection.find
               const category = channels.find(
                 (c) =>
                   c?.type === ChannelType.GuildCategory &&
@@ -229,7 +226,7 @@ export class DiscordClient {
           const sessionId = options.getString('session_id');
           if (!sessionId) {
             await interaction.reply({
-              content: 'ID required.',
+              content: 'Session ID required.',
               flags: [MessageFlags.Ephemeral],
             });
             return;
@@ -242,8 +239,7 @@ export class DiscordClient {
             await interaction.editReply(`Resumed \`${sessionId}\`.`);
             this.channelBusy.add(channelId);
             session.start().finally(() => this.channelBusy.delete(channelId));
-          } catch (error) {
-            console.error(error);
+          } catch {
             await interaction.editReply('Failed.');
           }
           break;
@@ -271,8 +267,7 @@ export class DiscordClient {
           fresh
             .start(getDiscordPrompt(message.content))
             .finally(() => this.channelBusy.delete(message.channelId));
-        } catch (error) {
-          console.error(error);
+        } catch {
           await message.react('❌');
         }
       }
