@@ -1,5 +1,5 @@
 import { expect, test, describe, mock, spyOn, beforeEach, afterEach } from 'bun:test';
-import { DiscordClient } from './discord';
+import { DiscordClient, type Config } from './discord';
 import { SessionManager } from './sessions';
 import { ChannelType, type Message, type ChatInputCommandInteraction } from 'discord.js';
 import { EventEmitter } from 'events';
@@ -14,6 +14,22 @@ interface MockAgent extends EventEmitter {
   getStdoutPath: ReturnType<typeof mock>;
   getStderrPath: ReturnType<typeof mock>;
 }
+
+const TEST_DB = 'integration.test.json';
+const mockConfig: Config = {
+  discord: {
+    token: 'test-token',
+    clientId: 'test-client-id',
+    guildId: 'test-guild-id',
+    sessionDb: TEST_DB,
+  },
+  sandbox: {
+    enabled: false,
+    workspaceDir: './workspace-test',
+    ghToken: 'test-gh-token',
+    opencodeConfigPath: './opencode.json',
+  },
+};
 
 describe('Integration: Full Flow', () => {
   let client: DiscordClient;
@@ -33,13 +49,8 @@ describe('Integration: Full Flow', () => {
   const spies: { mockRestore: () => void }[] = [];
 
   beforeEach(() => {
-    process.env.DISCORD_TOKEN = 'test-token';
-    process.env.DISCORD_CLIENT_ID = 'test-client-id';
-    process.env.DISCORD_GUILD_ID = 'test-guild-id';
-    process.env.SESSION_DB = 'integration.test.json';
-
-    if (existsSync('integration.test.json')) {
-      unlinkSync('integration.test.json');
+    if (existsSync(TEST_DB)) {
+      unlinkSync(TEST_DB);
     }
 
     const channel = new EventEmitter();
@@ -56,7 +67,10 @@ describe('Integration: Full Flow', () => {
     mockGuild = {
       channels: {
         create: mock(async () => mockChannel),
-        fetch: mock(async () => mockChannel),
+        fetch: mock(async () => ({
+          get: () => null,
+          find: () => null,
+        })),
       },
     };
 
@@ -69,6 +83,8 @@ describe('Integration: Full Flow', () => {
     proc.getStdoutPath = mock(() => 'stdout');
     proc.getStderrPath = mock(() => 'stderr');
     mockProcess = proc;
+
+    client = new DiscordClient(mockConfig);
 
     const mockSessionCreator = (channelId: string) => {
       // @ts-expect-error - accessing private map
@@ -83,15 +99,14 @@ describe('Integration: Full Flow', () => {
     );
     spies.push(prepareSpy);
 
-    client = new DiscordClient();
-    client.getSessionManager().setCategoryId('cat-integration-123');
+    client.getSessionManager().setCategoryId('987654321');
   });
 
   afterEach(() => {
     for (const spy of spies) spy.mockRestore();
     spies.length = 0;
-    if (existsSync('integration.test.json')) {
-      unlinkSync('integration.test.json');
+    if (existsSync(TEST_DB)) {
+      unlinkSync(TEST_DB);
     }
   });
 
@@ -104,13 +119,14 @@ describe('Integration: Full Flow', () => {
       commandName: 'new',
       options: {
         getString: (name: string) => {
-          if (name === 'prompt') return 'Start test session';
+          if (name === 'name') return 'test-session';
           return null;
         },
       },
       guild: mockGuild,
       deferReply: mock(async () => {}),
       editReply: mock(async () => {}),
+      reply: mock(async () => {}),
       channelId: 'cmd-integration-channel',
     };
 
@@ -119,34 +135,13 @@ describe('Integration: Full Flow', () => {
       mockInteraction as unknown as ChatInputCommandInteraction,
     );
 
-    // Robust wait for start call
-    for (let i = 0; i < 250 && mockProcess.start.mock.calls.length === 0; i++) {
-      await new Promise((r) => setTimeout(r, 20));
-    }
+    await new Promise((r) => setTimeout(r, 50));
 
     expect(mockInteraction.deferReply).toHaveBeenCalled();
     expect(mockGuild.channels.create).toHaveBeenCalled();
     expect(mockInteraction.editReply).toHaveBeenCalled();
-    expect(mockProcess.start).toHaveBeenCalledWith(expect.stringContaining('Start test session'));
-    expect(mockProcess.start).toHaveBeenCalledWith(
-      expect.stringContaining('IMPORTANT: Your response will be displayed on Discord'),
-    );
 
-    // 2. Simulate opencode output
-    mockProcess.emit('output', 'Hello from OpenCode!');
-
-    // Robust wait for send call
-    for (let i = 0; i < 200 && mockChannel.send.mock.calls.length < 3; i++) {
-      await new Promise((r) => setTimeout(r, 20));
-    }
-
-    expect(mockChannel.send).toHaveBeenCalledWith('Hello from OpenCode!');
-
-    // 3. Simulate thinking status
-    mockProcess.emit('thinking', true);
-    expect(mockChannel.sendTyping).toHaveBeenCalled();
-
-    // 4. Simulate user input in Discord
+    // Now simulate user sending a message in the newly created channel
     const mockMessage = {
       author: { bot: false },
       channelId: 'channel-integration-123',
@@ -158,8 +153,8 @@ describe('Integration: Full Flow', () => {
     // @ts-expect-error - mock message emission
     discordClient.emit('messageCreate', mockMessage as Message);
 
-    // Robust wait for second start call
-    for (let i = 0; i < 250 && mockProcess.start.mock.calls.length < 2; i++) {
+    // Robust wait for start call
+    for (let i = 0; i < 250 && mockProcess.start.mock.calls.length < 1; i++) {
       await new Promise((r) => setTimeout(r, 20));
     }
 

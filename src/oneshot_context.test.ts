@@ -1,9 +1,25 @@
 import { expect, test, describe, mock, spyOn, beforeEach, afterEach } from 'bun:test';
-import { DiscordClient } from './discord';
+import { DiscordClient, type Config } from './discord';
 import { ChannelType, type Message } from 'discord.js';
 import { EventEmitter } from 'events';
 import * as opencode from './opencode';
 import { existsSync, unlinkSync } from 'fs';
+
+const TEST_DB = 'oneshot_context.test.json';
+const mockConfig: Config = {
+  discord: {
+    token: 'test-token',
+    clientId: 'test-client-id',
+    guildId: 'test-guild-id',
+    sessionDb: TEST_DB,
+  },
+  sandbox: {
+    enabled: false,
+    workspaceDir: './workspace-test',
+    ghToken: 'test-gh-token',
+    opencodeConfigPath: './opencode.json',
+  },
+};
 
 describe('One-Shot Context Persistence', () => {
   let client: DiscordClient;
@@ -11,13 +27,8 @@ describe('One-Shot Context Persistence', () => {
   const spies: { mockRestore: () => void }[] = [];
 
   beforeEach(() => {
-    process.env.DISCORD_TOKEN = 'test-token';
-    process.env.DISCORD_CLIENT_ID = 'test-client-id';
-    process.env.DISCORD_GUILD_ID = 'test-guild-id';
-    process.env.SESSION_DB = 'oneshot_context.test.json';
-
-    if (existsSync('oneshot_context.test.json')) {
-      unlinkSync('oneshot_context.test.json');
+    if (existsSync(TEST_DB)) {
+      unlinkSync(TEST_DB);
     }
 
     const channel = new EventEmitter();
@@ -29,14 +40,14 @@ describe('One-Shot Context Persistence', () => {
     channel.type = ChannelType.GuildText;
     mockChannel = channel as unknown as typeof mockChannel;
 
-    client = new DiscordClient();
+    client = new DiscordClient(mockConfig);
   });
 
   afterEach(() => {
     for (const spy of spies) spy.mockRestore();
     spies.length = 0;
-    if (existsSync('oneshot_context.test.json')) {
-      unlinkSync('oneshot_context.test.json');
+    if (existsSync(TEST_DB)) {
+      unlinkSync(TEST_DB);
     }
   });
 
@@ -49,9 +60,8 @@ describe('One-Shot Context Persistence', () => {
 
     const capturedSessionIds: string[] = [];
     const startSpy = spyOn(opencode.OpenCodeAgent.prototype, 'start').mockImplementation(
-      async function (this: unknown) {
-        const self = this as { sessionId?: string };
-        const sid = self.sessionId || '';
+      async function (this: { sessionId?: string }) {
+        const sid = this.sessionId || '';
         capturedSessionIds.push(sid);
         return Promise.resolve();
       },
