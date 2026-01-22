@@ -9,6 +9,7 @@ node_modules/
 logs/
 sessions.json
 sessions.test.json
+config.json
 
 # Ignore all JSON data files, but keep project config
 *.json

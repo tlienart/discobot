@@ -1,3 +1,4 @@
+import { spawn } from 'bun';
 import { OpenCodeAgent, type OpenCodeEvent } from './opencode';
 import { MockProcess } from './mock';
 import {
@@ -13,6 +14,7 @@ import {
 import { type Agent } from './agent';
 import { SandboxManager } from './sandbox/manager';
 import { join } from 'path';
+import { type Config } from './discord';
 
 const ANIMALS = [
   'panda',
@@ -147,29 +149,25 @@ export class SessionManager {
   private readonly PERSISTENCE_FILE: string;
   private sandboxManager: SandboxManager | null = null;
   private readonly workspacePath: string;
+  private config: Config;
 
-  constructor(persistenceFile: string = 'sessions.json') {
-    this.PERSISTENCE_FILE = persistenceFile;
-
-    const configWorkspace = process.env.SANDBOX_WORKSPACE_DIR || './workspace';
-    if (configWorkspace.startsWith('./') || !configWorkspace.startsWith('/')) {
-      if (process.env.USE_SANDBOX === 'true') {
-        this.workspacePath = join('/Users/Shared', 'discobot-workspace');
-      } else {
-        this.workspacePath = join(process.cwd(), configWorkspace);
-      }
-    } else {
-      this.workspacePath = configWorkspace;
-    }
+  constructor(config: Config) {
+    this.config = config;
+    this.PERSISTENCE_FILE = config.discord.sessionDb || 'sessions.json';
+    this.workspacePath = config.sandbox.workspaceDir;
 
     if (!existsSync(this.workspacePath)) {
       mkdirSync(this.workspacePath, { recursive: true });
       chmodSync(this.workspacePath, 0o777);
     }
 
-    if (process.env.USE_SANDBOX === 'true') {
+    if (config.sandbox.enabled) {
       console.log('[Manager] Sandbox enabled. Initializing SandboxManager...');
-      this.sandboxManager = new SandboxManager(this.workspacePath, process.env.SANDBOX_GH_TOKEN);
+      this.sandboxManager = new SandboxManager(
+        this.workspacePath,
+        config.sandbox.ghToken,
+        config.apiKeys,
+      );
       this.sandboxManager.start();
 
       const sandboxBin = join(this.workspacePath, '.bin');
@@ -308,12 +306,13 @@ export class SessionManager {
     const sandboxLocalPort = Math.floor(Math.random() * 1000) + 8000;
 
     // Sync Config & PATCH it for local bridge
-    const hostConfigPath = process.env.OPENCODE_CONFIG_PATH;
+    const hostConfigPath = this.config.sandbox.opencodeConfigPath;
     if (hostConfigPath && existsSync(hostConfigPath)) {
       const sandboxConfigDir = join(sessionWorkspace, '.config', 'opencode');
       if (!existsSync(sandboxConfigDir)) mkdirSync(sandboxConfigDir, { recursive: true });
       try {
-        const config = JSON.parse(readFileSync(hostConfigPath, 'utf-8'));
+        const configText = readFileSync(hostConfigPath, 'utf-8');
+        const config = JSON.parse(configText);
         if (!config.provider) config.provider = {};
         const providers = ['google', 'openai', 'anthropic'];
         for (const p of providers) {
@@ -357,7 +356,6 @@ python3 "${this.workspacePath}/.bin/http_to_unix.py" ${sandboxLocalPort} > /dev/
 BRIDGE_PID=$!
 
 sleep 0.5
-# We use 127.0.0.1 explicitly to avoid IPv6 issues
 export GOOGLE_GENERATIVE_AI_BASE_URL="http://127.0.0.1:${sandboxLocalPort}/google"
 export OPENAI_BASE_URL="http://127.0.0.1:${sandboxLocalPort}/openai/v1"
 export ANTHROPIC_BASE_URL="http://127.0.0.1:${sandboxLocalPort}/anthropic"
@@ -372,7 +370,7 @@ exit $RET
 
     const session = new OpenCodeAgent(sid, {
       workspacePath: sessionWorkspace,
-      useSandbox: process.env.USE_SANDBOX === 'true',
+      useSandbox: this.config.sandbox.enabled,
       sandboxBinDir: join(this.workspacePath, '.bin'),
       entrypoint: entrypointPath,
     });

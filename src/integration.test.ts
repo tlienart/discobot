@@ -1,5 +1,5 @@
 import { expect, test, describe, mock, spyOn, beforeEach, afterEach } from 'bun:test';
-import { DiscordClient } from './discord';
+import { DiscordClient, type Config } from './discord';
 import { SessionManager } from './sessions';
 import { ChannelType, type Message, type ChatInputCommandInteraction } from 'discord.js';
 import { EventEmitter } from 'events';
@@ -14,6 +14,22 @@ interface MockAgent extends EventEmitter {
   getStdoutPath: ReturnType<typeof mock>;
   getStderrPath: ReturnType<typeof mock>;
 }
+
+const TEST_DB = 'integration.test.json';
+const mockConfig: Config = {
+  discord: {
+    token: 'test-token',
+    clientId: 'test-client-id',
+    guildId: 'test-guild-id',
+    sessionDb: TEST_DB,
+  },
+  sandbox: {
+    enabled: false,
+    workspaceDir: './workspace-test',
+    ghToken: 'test-gh-token',
+    opencodeConfigPath: './opencode.json',
+  },
+};
 
 describe('Integration: Full Flow', () => {
   let client: DiscordClient;
@@ -33,13 +49,8 @@ describe('Integration: Full Flow', () => {
   const spies: { mockRestore: () => void }[] = [];
 
   beforeEach(() => {
-    process.env.DISCORD_TOKEN = 'test-token';
-    process.env.DISCORD_CLIENT_ID = 'test-client-id';
-    process.env.DISCORD_GUILD_ID = 'test-guild-id';
-    process.env.SESSION_DB = 'integration.test.json';
-
-    if (existsSync('integration.test.json')) {
-      unlinkSync('integration.test.json');
+    if (existsSync(TEST_DB)) {
+      unlinkSync(TEST_DB);
     }
 
     const channel = new EventEmitter();
@@ -56,7 +67,9 @@ describe('Integration: Full Flow', () => {
     mockGuild = {
       channels: {
         create: mock(async () => mockChannel),
-        fetch: mock(async () => mockChannel),
+        fetch: mock(async () => ({
+          find: () => null,
+        })),
       },
     };
 
@@ -69,6 +82,8 @@ describe('Integration: Full Flow', () => {
     proc.getStdoutPath = mock(() => 'stdout');
     proc.getStderrPath = mock(() => 'stderr');
     mockProcess = proc;
+
+    client = new DiscordClient(mockConfig);
 
     const mockSessionCreator = (channelId: string) => {
       // @ts-expect-error - accessing private map
@@ -83,15 +98,14 @@ describe('Integration: Full Flow', () => {
     );
     spies.push(prepareSpy);
 
-    client = new DiscordClient();
     client.getSessionManager().setCategoryId('cat-integration-123');
   });
 
   afterEach(() => {
     for (const spy of spies) spy.mockRestore();
     spies.length = 0;
-    if (existsSync('integration.test.json')) {
-      unlinkSync('integration.test.json');
+    if (existsSync(TEST_DB)) {
+      unlinkSync(TEST_DB);
     }
   });
 
@@ -136,11 +150,12 @@ describe('Integration: Full Flow', () => {
     mockProcess.emit('output', 'Hello from OpenCode!');
 
     // Robust wait for send call
-    for (let i = 0; i < 200 && mockChannel.send.mock.calls.length < 3; i++) {
+    for (let i = 0; i < 200 && mockChannel.send.mock.calls.length < 2; i++) {
       await new Promise((r) => setTimeout(r, 20));
     }
 
     expect(mockChannel.send).toHaveBeenCalledWith('Hello from OpenCode!');
+    expect(mockChannel.send).toHaveBeenCalledWith('**User:** Start test session');
 
     // 3. Simulate thinking status
     mockProcess.emit('thinking', true);

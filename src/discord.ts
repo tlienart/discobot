@@ -14,12 +14,34 @@ import { readFileSync, existsSync } from 'fs';
 import { SessionManager } from './sessions';
 import { type OpenCodeEvent } from './opencode';
 import { type Agent } from './agent';
+import { join } from 'path';
+
+export interface Config {
+  discord: {
+    token: string;
+    clientId: string;
+    guildId: string;
+    sessionDb: string;
+  };
+  sandbox: {
+    enabled: boolean;
+    workspaceDir: string;
+    ghToken: string;
+    opencodeConfigPath: string;
+  };
+  gcp?: {
+    project: string;
+  };
+  apiKeys?: {
+    google?: string;
+    openai?: string;
+    anthropic?: string;
+  };
+}
 
 export class DiscordClient {
   private client: Client;
-  private token: string;
-  private clientId: string;
-  private guildId: string;
+  private config: Config;
   private sessionManager: SessionManager;
 
   private typingIntervals: Map<string, Timer> = new Map();
@@ -32,21 +54,26 @@ export class DiscordClient {
 
   private channelBusy: Set<string> = new Set();
 
-  constructor() {
-    this.token = (process.env.DISCORD_TOKEN || '').trim().replace(/^"|"$/g, '');
-    this.clientId = (process.env.DISCORD_CLIENT_ID || '').trim().replace(/^"|"$/g, '');
-    this.guildId = (process.env.DISCORD_GUILD_ID || '').trim().replace(/^"|"$/g, '');
-
-    if (this.token) {
-      console.log(
-        `[Discord] Token loaded. Length: ${this.token.length}, Prefix: ${this.token.substring(0, 4)}...`,
-      );
+  constructor(config?: Config) {
+    if (config) {
+      this.config = config;
     } else {
-      console.error('[Discord] Token is EMPTY!');
+      const configPath = join(process.cwd(), 'config.json');
+      if (!existsSync(configPath)) {
+        throw new Error('Missing config.json file');
+      }
+
+      try {
+        this.config = JSON.parse(readFileSync(configPath, 'utf-8'));
+      } catch (e) {
+        throw new Error(`Failed to parse config.json: ${String(e)}`);
+      }
     }
 
-    if (!this.token || !this.clientId || !this.guildId) {
-      throw new Error('Missing Discord credentials in environment variables');
+    const { token, clientId, guildId } = this.config.discord;
+
+    if (!token || !clientId || !guildId) {
+      throw new Error('Missing Discord credentials in config.json');
     }
 
     this.client = new Client({
@@ -57,7 +84,7 @@ export class DiscordClient {
       ],
     });
 
-    this.sessionManager = new SessionManager(process.env.SESSION_DB);
+    this.sessionManager = new SessionManager(this.config);
     this.setupEvents();
   }
 
@@ -214,7 +241,7 @@ export class DiscordClient {
           const chan = await this.client.channels.fetch(channelId);
           if (chan && chan.type === ChannelType.GuildText) {
             this.attachSessionListeners(newSession, chan as TextChannel);
-            await (chan as TextChannel).send(`🔄 **Restarted.**`);
+            await (chan as TextChannel).send(`🔄 **Session Restarted.**`);
             this.channelBusy.add(channelId);
             newSession.start().finally(() => this.channelBusy.delete(channelId));
             await interaction.reply({ content: 'Restarting...', flags: [MessageFlags.Ephemeral] });
@@ -367,11 +394,14 @@ export class DiscordClient {
         .addStringOption((o) => o.setName('folder').setDescription('Folder').setRequired(true)),
     ].map((c) => c.toJSON());
 
-    const rest = new REST({ version: '10' }).setToken(this.token);
+    const rest = new REST({ version: '10' }).setToken(this.config.discord.token);
     try {
-      await rest.put(Routes.applicationGuildCommands(this.clientId, this.guildId), {
-        body: commands,
-      });
+      await rest.put(
+        Routes.applicationGuildCommands(this.config.discord.clientId, this.config.discord.guildId),
+        {
+          body: commands,
+        },
+      );
       console.log('Reloaded (/) commands.');
     } catch (error) {
       console.error(error);
@@ -379,7 +409,7 @@ export class DiscordClient {
   }
 
   async login() {
-    await this.client.login(this.token);
+    await this.client.login(this.config.discord.token);
     await this.recoverSessions();
   }
 

@@ -18,21 +18,35 @@ export class HostBridge {
   private sandboxToken?: string;
   private hostKeys: Record<string, string> = {};
 
-  constructor(workspacePath: string, sandboxToken?: string) {
+  constructor(workspacePath: string, sandboxToken?: string, apiKeys?: Record<string, string>) {
     if (!existsSync(workspacePath)) {
       mkdirSync(workspacePath, { recursive: true });
     }
     this.socketPath = join(workspacePath, 'bridge.sock');
     this.proxySocketPath = join(workspacePath, 'proxy.sock');
     this.sandboxToken = sandboxToken;
+
+    if (apiKeys) {
+      this.hostKeys.google = apiKeys.google || '';
+      this.hostKeys.openai = apiKeys.openai || '';
+      this.hostKeys.anthropic = apiKeys.anthropic || '';
+    }
+
     this.harvestHostKeys();
   }
 
   private harvestHostKeys() {
-    this.hostKeys.google =
-      process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || '';
-    this.hostKeys.openai = process.env.OPENAI_API_KEY || '';
-    this.hostKeys.anthropic = process.env.ANTHROPIC_API_KEY || '';
+    // Fill in missing keys from host environment or auth.json
+    if (!this.hostKeys.google) {
+      this.hostKeys.google =
+        process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || '';
+    }
+    if (!this.hostKeys.openai) {
+      this.hostKeys.openai = process.env.OPENAI_API_KEY || '';
+    }
+    if (!this.hostKeys.anthropic) {
+      this.hostKeys.anthropic = process.env.ANTHROPIC_API_KEY || '';
+    }
 
     const authPath = join(process.env.HOME || '', '.local/share/opencode/auth.json');
     if (existsSync(authPath)) {
@@ -41,10 +55,16 @@ export class HostBridge {
         if (!this.hostKeys.google) this.hostKeys.google = auth.google?.key;
         if (!this.hostKeys.openai) this.hostKeys.openai = auth.openai?.key;
         if (!this.hostKeys.anthropic) this.hostKeys.anthropic = auth.anthropic?.key;
-      } catch (error) {
-        console.warn('[Bridge] Failed to harvest host keys:', error);
+      } catch (e) {
+        // ignore
       }
     }
+    console.log(
+      `[Bridge] Harvested keys for providers: ${Object.entries(this.hostKeys)
+        .filter(([_, v]) => !!v)
+        .map(([k]) => k)
+        .join(', ')}`,
+    );
   }
 
   async start() {
@@ -114,15 +134,15 @@ export class HostBridge {
               method: req.method,
               headers: headers,
               body: req.body,
-              // @ts-expect-error - duplex: half is required for body streaming
+              // @ts-expect-error - duplex
               duplex: 'half',
             });
 
             return response;
           }
           return new Response('Not Found', { status: 404 });
-        } catch (error) {
-          return new Response('Proxy Error: ' + String(error), { status: 502 });
+        } catch (e: any) {
+          return new Response('Proxy Error: ' + e.message, { status: 502 });
         }
       },
     });
