@@ -43,7 +43,7 @@ We use [alcless](https://github.com/AkihiroSuda/alcless) for secure, lightweight
     ```
     Inside that shell, install the necessary CLI tools using `brew`:
     ```bash
-    brew install gh git opencode
+    brew install gh opencode
     ```
 
 ### 3. Configuration
