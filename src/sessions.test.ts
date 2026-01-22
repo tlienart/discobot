@@ -61,11 +61,11 @@ describe('SessionManager', () => {
     if (existsSync(TEST_DB)) unlinkSync(TEST_DB);
     const sm1 = new SessionManager(mockConfig);
     sm1.prepareSession('chan-1', 'ses_test-1');
-    sm1.setCategoryId('cat-123');
+    sm1.setCategoryId('123456789');
 
     const sm2 = new SessionManager(mockConfig);
     expect(sm2.getChannelMapping().get('chan-1')).toBe('ses_test-1');
-    expect(sm2.getCategoryId()).toBe('cat-123');
+    expect(sm2.getCategoryId()).toBe('123456789');
   });
 
   test('should enforce prefixes and generate animal names', () => {

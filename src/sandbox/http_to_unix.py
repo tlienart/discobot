@@ -1,76 +1,84 @@
 import os
 import sys
 import socket
-import traceback
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
+import time
 
-# This script runs inside the sandbox
-# It bridges TCP HTTP requests to a Unix Domain Socket (The Host Bridge)
+# Ultra-Reliable TCP-to-Unix Bridge for macOS
+# With internal logging for debugging
 
 PROXY_SOCK = os.environ.get("PROXY_SOCK")
-LOG_FILE = "/tmp/bridge.log"
+LOG_FILE = "/tmp/python_bridge.log"
 
 
 def log(msg):
     with open(LOG_FILE, "a") as f:
-        f.write(f"{msg}\n")
+        f.write(f"[{time.time()}] {msg}\n")
 
 
-class ProxyHandler(BaseHTTPRequestHandler):
-    def do_ANY(self):
-        log(f"Request: {self.command} {self.path}")
+def pipe(source, target, label):
+    try:
+        while True:
+            data = source.recv(8192)
+            if not data:
+                log(f"EOF on {label}")
+                break
+            log(f"Data on {label}: {len(data)} bytes")
+            target.sendall(data)
+    except Exception as e:
+        log(f"Error on {label}: {e}")
+    finally:
         try:
-            content_length = int(self.headers.get("Content-Length", 0))
-            body = self.rfile.read(content_length) if content_length > 0 else None
+            source.close()
+        except:
+            pass
+        try:
+            target.close()
+        except:
+            pass
 
-            client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            client.connect(PROXY_SOCK)
 
-            # Reconstruct the request to the unix socket
-            request_line = f"{self.command} {self.path} {self.request_version}\r\n"
-            client.sendall(request_line.encode("utf-8"))
+def bridge(tcp_conn, unix_sock_path):
+    try:
+        log(f"Connecting to Unix socket: {unix_sock_path}")
+        unix_conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        unix_conn.connect(unix_sock_path)
+        log("Connected to Host Bridge.")
 
-            # Send headers
-            for k, v in self.headers.items():
-                client.sendall(f"{k}: {v}\r\n".encode("utf-8"))
-            client.sendall(b"\r\n")
+        t1 = threading.Thread(
+            target=pipe, args=(tcp_conn, unix_conn, "TCP->Unix"), daemon=True
+        )
+        t2 = threading.Thread(
+            target=pipe, args=(unix_conn, tcp_conn, "Unix->TCP"), daemon=True
+        )
 
-            # Send body
-            if body:
-                client.sendall(body)
-
-            # Receive response and pipe back to self.wfile
-            while True:
-                data = client.recv(4096)
-                if not data:
-                    break
-                self.wfile.write(data)
-
-            client.close()
-            log("Request forwarded successfully")
-        except Exception as e:
-            log(f"Bridge Error: {e}")
-            log(traceback.format_exc())
-            self.send_error(502, f"Bridge Error: {e}")
-
-    do_GET = do_ANY
-    do_POST = do_ANY
-    do_PUT = do_ANY
-    do_DELETE = do_ANY
-
-    def log_message(self, format, *args):
-        log(format % args)
+        t1.start()
+        t2.start()
+    except Exception as e:
+        log(f"Bridge setup failed: {e}")
+        tcp_conn.close()
 
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python3 http_to_unix.py <port>")
         sys.exit(1)
 
     port = int(sys.argv[1])
-    server = HTTPServer(("127.0.0.1", port), ProxyHandler)
-    log(f"HTTP-to-Unix Bridge listening on 127.0.0.1:{port} -> {PROXY_SOCK}")
-    server.serve_forever()
+    log(f"Starting bridge on port {port} -> {PROXY_SOCK}")
+
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(("127.0.0.1", port))
+    server.listen(100)
+
+    while True:
+        try:
+            client_conn, addr = server.accept()
+            log(f"Accepted connection from {addr}")
+            bridge(client_conn, PROXY_SOCK)
+        except Exception as e:
+            log(f"Server error: {e}")
+            time.sleep(0.1)
 
 
 if __name__ == "__main__":

@@ -60,7 +60,7 @@ describe('One-Shot Context Persistence', () => {
 
     const capturedSessionIds: string[] = [];
     const startSpy = spyOn(opencode.OpenCodeAgent.prototype, 'start').mockImplementation(
-      async function (this: any) {
+      async function (this: { sessionId?: string }) {
         const sid = this.sessionId || '';
         capturedSessionIds.push(sid);
         return Promise.resolve();

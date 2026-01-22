@@ -1,7 +1,10 @@
-import { listen, serve, type Socket, type SocketListener, type Server } from 'bun';
+import { listen, type Socket, type SocketListener } from 'bun';
 import { spawn } from 'bun';
-import { existsSync, unlinkSync, mkdirSync, chmodSync, readFileSync } from 'fs';
+import { existsSync, unlinkSync, mkdirSync, chmodSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
+import http from 'http';
+import https from 'https';
+import net from 'net';
 
 export interface BridgeRequest {
   command: string;
@@ -12,7 +15,7 @@ export interface BridgeRequest {
 
 export class HostBridge {
   private commandListener: SocketListener<unknown> | null = null;
-  private proxyServer: Server<unknown> | null = null;
+  private proxyServer: http.Server | null = null;
   private socketPath: string;
   private proxySocketPath: string;
   private sandboxToken?: string;
@@ -36,7 +39,6 @@ export class HostBridge {
   }
 
   private harvestHostKeys() {
-    // Fill in missing keys from host environment or auth.json
     if (!this.hostKeys.google) {
       this.hostKeys.google =
         process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || '';
@@ -51,11 +53,12 @@ export class HostBridge {
     const authPath = join(process.env.HOME || '', '.local/share/opencode/auth.json');
     if (existsSync(authPath)) {
       try {
-        const auth = JSON.parse(readFileSync(authPath, 'utf-8'));
+        const authText = readFileSync(authPath, 'utf-8');
+        const auth = JSON.parse(authText);
         if (!this.hostKeys.google) this.hostKeys.google = auth.google?.key;
         if (!this.hostKeys.openai) this.hostKeys.openai = auth.openai?.key;
         if (!this.hostKeys.anthropic) this.hostKeys.anthropic = auth.anthropic?.key;
-      } catch (e) {
+      } catch {
         // ignore
       }
     }
@@ -90,63 +93,106 @@ export class HostBridge {
     // 2. API Proxy
     if (existsSync(this.proxySocketPath)) unlinkSync(this.proxySocketPath);
     const hostKeys = this.hostKeys;
-    this.proxyServer = serve({
-      unix: this.proxySocketPath,
-      async fetch(req) {
-        try {
-          const url = new URL(req.url);
-          let targetBase: string | null = null;
-          let authHeader: string | null = null;
-          let authValue: string | null = null;
-          let isGoogle = false;
 
-          if (url.pathname.startsWith('/google')) {
-            let path = url.pathname.replace('/google', '');
-            if (!path.startsWith('/v1beta')) path = '/v1beta' + path;
-            targetBase = 'https://generativelanguage.googleapis.com' + path;
-            authHeader = 'x-goog-api-key';
-            authValue = hostKeys.google;
-            isGoogle = true;
-          } else if (url.pathname.startsWith('/openai')) {
-            targetBase = 'https://api.openai.com' + url.pathname.replace('/openai', '');
-            authHeader = 'Authorization';
-            authValue = `Bearer ${hostKeys.openai}`;
-          } else if (url.pathname.startsWith('/anthropic')) {
-            targetBase = 'https://api.anthropic.com' + url.pathname.replace('/anthropic', '');
-            authHeader = 'x-api-key';
-            authValue = hostKeys.anthropic;
-          }
+    this.proxyServer = http.createServer(async (req, res) => {
+      try {
+        const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
 
-          if (targetBase && authValue) {
-            const finalUrl = new URL(targetBase + url.search);
-            finalUrl.searchParams.delete('key');
-
-            const headers = new Headers(req.headers);
-            headers.delete('host');
-            headers.delete('x-goog-api-key');
-            headers.delete('authorization');
-            headers.delete('x-api-key');
-
-            if (isGoogle) finalUrl.searchParams.set('key', authValue);
-            if (authHeader) headers.set(authHeader, authValue);
-
-            const response = await fetch(finalUrl.toString(), {
-              method: req.method,
-              headers: headers,
-              body: req.body,
-              // @ts-expect-error - duplex
-              duplex: 'half',
-            });
-
-            return response;
-          }
-          return new Response('Not Found', { status: 404 });
-        } catch (e: any) {
-          return new Response('Proxy Error: ' + e.message, { status: 502 });
+        if (url.pathname === '/ping') {
+          res.writeHead(200);
+          res.end('PONG');
+          return;
         }
-      },
+
+        let targetHost: string | null = null;
+        let targetPath: string | null = null;
+        let authHeader: string | null = null;
+        let authValue: string | null = null;
+        let isGoogle = false;
+
+        if (url.pathname.startsWith('/google')) {
+          let path = url.pathname.replace('/google', '');
+          if (!path.startsWith('/v1beta')) path = '/v1beta' + path;
+          targetHost = 'generativelanguage.googleapis.com';
+          targetPath = path;
+          authHeader = 'x-goog-api-key';
+          authValue = hostKeys.google;
+          isGoogle = true;
+        } else if (url.pathname.startsWith('/openai')) {
+          targetHost = 'api.openai.com';
+          targetPath = url.pathname.replace('/openai', '');
+          authHeader = 'Authorization';
+          authValue = `Bearer ${hostKeys.openai}`;
+        } else if (url.pathname.startsWith('/anthropic')) {
+          targetHost = 'api.anthropic.com';
+          targetPath = url.pathname.replace('/anthropic', '');
+          authHeader = 'x-api-key';
+          authValue = hostKeys.anthropic;
+        }
+
+        if (targetHost && authValue) {
+          const finalPath = targetPath + url.search;
+          const finalUrl = new URL(`https://${targetHost}${finalPath}`);
+          if (isGoogle) finalUrl.searchParams.set('key', authValue);
+
+          console.log(`[Proxy] Forwarding ${req.method} ${url.pathname} -> ${targetHost}`);
+
+          const proxyReq = https.request(
+            {
+              hostname: targetHost,
+              port: 443,
+              path: finalUrl.pathname + finalUrl.search,
+              method: req.method,
+              headers: {
+                ...req.headers,
+                host: targetHost,
+                [authHeader.toLowerCase()]: authValue,
+              },
+            },
+            (proxyRes) => {
+              console.log(`[Proxy] Upstream response: ${proxyRes.statusCode}`);
+
+              // Filter out headers that Node should manage
+              const headers = { ...proxyRes.headers };
+              delete headers['transfer-encoding'];
+              delete headers['content-length'];
+              delete headers['connection'];
+
+              res.writeHead(proxyRes.statusCode || 200, headers);
+              proxyRes.pipe(res);
+            },
+          );
+
+          proxyReq.on('error', (e) => {
+            console.error(`[Proxy] Upstream error: ${e.message}`);
+            res.writeHead(502);
+            res.end('Proxy Error');
+          });
+
+          req.pipe(proxyReq);
+        } else {
+          res.writeHead(404);
+          res.end('Not Found');
+        }
+      } catch (error) {
+        console.error('[Proxy] Internal error:', error);
+        res.writeHead(500);
+        res.end('Internal Error');
+      }
     });
-    chmodSync(this.proxySocketPath, 0o777);
+
+    this.proxyServer.listen(this.proxySocketPath, () => {
+      console.log(`[Bridge] API Proxy listening on ${this.proxySocketPath}`);
+      chmodSync(this.proxySocketPath, 0o777);
+    });
+
+    // Wait for sockets to exist
+    for (let i = 0; i < 10; i++) {
+      if (existsSync(this.socketPath) && existsSync(this.proxySocketPath)) {
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
   }
 
   private async handleRequest(socket: Socket<unknown>, request: BridgeRequest) {
@@ -201,7 +247,7 @@ export class HostBridge {
 
   stop() {
     this.commandListener?.stop();
-    this.proxyServer?.stop();
+    this.proxyServer?.close();
     if (existsSync(this.socketPath)) unlinkSync(this.socketPath);
     if (existsSync(this.proxySocketPath)) unlinkSync(this.proxySocketPath);
   }

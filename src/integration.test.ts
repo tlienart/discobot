@@ -68,6 +68,7 @@ describe('Integration: Full Flow', () => {
       channels: {
         create: mock(async () => mockChannel),
         fetch: mock(async () => ({
+          get: () => null,
           find: () => null,
         })),
       },
@@ -98,7 +99,8 @@ describe('Integration: Full Flow', () => {
     );
     spies.push(prepareSpy);
 
-    client.getSessionManager().setCategoryId('cat-integration-123');
+    client = new DiscordClient(mockConfig);
+    client.getSessionManager().setCategoryId('987654321');
   });
 
   afterEach(() => {

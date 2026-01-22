@@ -1,4 +1,3 @@
-import { spawn } from 'bun';
 import { OpenCodeAgent, type OpenCodeEvent } from './opencode';
 import { MockProcess } from './mock';
 import {
@@ -225,7 +224,12 @@ export class SessionManager {
   }
 
   setCategoryId(id: string | null) {
-    this.categoryId = id;
+    if (id && !/^\d+$/.test(id)) {
+      console.warn(`[Manager] Ignoring invalid category ID: ${id}`);
+      this.categoryId = null;
+    } else {
+      this.categoryId = id;
+    }
     this.savePersistence();
   }
 
@@ -303,7 +307,8 @@ export class SessionManager {
     if (!existsSync(dotConfig)) mkdirSync(dotConfig, { recursive: true });
 
     // Generate port for Sandbox Local Bridge
-    const sandboxLocalPort = Math.floor(Math.random() * 1000) + 8000;
+    // Use a wider range and ensure uniqueness
+    const sandboxLocalPort = Math.floor(Math.random() * 5000) + 10000;
 
     // Sync Config & PATCH it for local bridge
     const hostConfigPath = this.config.sandbox.opencodeConfigPath;
@@ -352,10 +357,22 @@ export PROXY_SOCK="${proxySock}"
 export PATH="${this.workspacePath}/.bin:$PATH"
 
 # Start HTTP-to-Unix Bridge (inside sandbox) to punch through to host proxy
-python3 "${this.workspacePath}/.bin/http_to_unix.py" ${sandboxLocalPort} > /dev/null 2>&1 &
+python3 "${this.workspacePath}/.bin/http_to_unix.py" ${sandboxLocalPort} > "${sessionWorkspace}/bridge.log" 2>&1 &
 BRIDGE_PID=$!
 
-sleep 0.5
+# Verify write access
+touch "${sessionWorkspace}/.local/write_test" || echo "[Entrypoint] ERROR: Cannot write to .local"
+touch "${sessionWorkspace}/.config/write_test" || echo "[Entrypoint] ERROR: Cannot write to .config"
+
+# Wait for bridge to be ready
+for i in {1..10}; do
+    if lsof -Pi :${sandboxLocalPort} -sTCP:LISTEN -t >/dev/null; then
+        break
+    fi
+    sleep 0.2
+done
+
+export GOOGLE_GENERATIVE_AI_API_BASE="http://127.0.0.1:${sandboxLocalPort}/google"
 export GOOGLE_GENERATIVE_AI_BASE_URL="http://127.0.0.1:${sandboxLocalPort}/google"
 export OPENAI_BASE_URL="http://127.0.0.1:${sandboxLocalPort}/openai/v1"
 export ANTHROPIC_BASE_URL="http://127.0.0.1:${sandboxLocalPort}/anthropic"

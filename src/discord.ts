@@ -153,23 +153,40 @@ export class DiscordClient {
           await interaction.deferReply();
           try {
             let parentId = this.sessionManager.getCategoryId();
-            if (!parentId && guild) {
+
+            // Validate parentId (must be numeric Snowflake)
+            if (parentId && !/^\d+$/.test(parentId)) {
+              console.warn(`[Discord] Invalid category ID in storage: ${parentId}. Clearing.`);
+              this.sessionManager.setCategoryId(null);
+              parentId = null;
+            }
+
+            if (guild) {
               const channels = await guild.channels.fetch();
-              // @ts-expect-error - Collection.find
-              const category = channels.find(
-                (c) =>
-                  c?.type === ChannelType.GuildCategory &&
-                  c.name.toLowerCase().includes('opencode'),
-              );
-              if (category) {
-                parentId = category.id;
-              } else {
-                const newCategory = await guild.channels.create({
-                  name: 'OpenCode Sessions',
-                  type: ChannelType.GuildCategory,
-                });
-                this.sessionManager.setCategoryId(newCategory.id);
-                parentId = newCategory.id;
+              // Check if the stored category still exists and is a category
+              const existingCategory = parentId ? channels.get(parentId) : null;
+
+              if (!existingCategory || existingCategory.type !== ChannelType.GuildCategory) {
+                // Category missing or invalid type, find by name or create
+                // @ts-expect-error - Collection.find
+                const category = channels.find(
+                  (c) =>
+                    c?.type === ChannelType.GuildCategory &&
+                    c.name.toLowerCase().includes('opencode'),
+                );
+
+                if (category) {
+                  parentId = category.id;
+                  this.sessionManager.setCategoryId(parentId);
+                } else {
+                  console.log('[Discord] Creating fresh OpenCode Sessions category...');
+                  const newCategory = await guild.channels.create({
+                    name: 'OpenCode Sessions',
+                    type: ChannelType.GuildCategory,
+                  });
+                  this.sessionManager.setCategoryId(newCategory.id);
+                  parentId = newCategory.id;
+                }
               }
             }
             const channel = await guild?.channels.create({
@@ -187,8 +204,7 @@ export class DiscordClient {
                 .start(getDiscordPrompt(prompt))
                 .finally(() => this.channelBusy.delete(channel.id));
             }
-          } catch (error) {
-            console.error(error);
+          } catch {
             await interaction.editReply('Failed to create channel.');
           }
           break;

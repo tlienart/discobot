@@ -1,4 +1,4 @@
-import { expect, test, describe, mock, spyOn, beforeEach, afterAll, afterEach } from 'bun:test';
+import { expect, test, describe, mock, spyOn, afterAll, afterEach } from 'bun:test';
 import { DiscordClient, type Config } from './discord';
 import { ChannelType, type ChatInputCommandInteraction } from 'discord.js';
 import { SessionManager } from './sessions';
@@ -42,7 +42,7 @@ describe('DiscordClient', () => {
     const fetchSpy = spyOn(client.getClient().channels, 'fetch');
     spies.push(fetchSpy);
 
-    await (client as any).recoverSessions();
+    await (client as unknown as { recoverSessions: () => Promise<void> }).recoverSessions();
 
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(client.getSessionManager().getChannelMapping().has('invalid-id')).toBe(false);
@@ -98,6 +98,7 @@ describe('DiscordClient', () => {
         channels: {
           create: mock(async () => mockChannel),
           fetch: mock(async () => ({
+            get: () => null,
             find: () => null,
           })),
         },
