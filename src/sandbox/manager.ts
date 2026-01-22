@@ -23,10 +23,6 @@ export class SandboxManager {
     return this.bridge.getSocketPath();
   }
 
-  getProxyPort() {
-    return this.bridge.getProxyPort();
-  }
-
   /**
    * Creates shim scripts in the specified directory.
    */
@@ -40,9 +36,11 @@ export class SandboxManager {
     const shimDestPath = join(targetBinDir, 'shim.py');
 
     // Copy shim.py to target bin dir
-    const shimContent = readFileSync(shimSourcePath);
-    writeFileSync(shimDestPath, shimContent);
-    chmodSync(shimDestPath, 0o755);
+    if (existsSync(shimSourcePath)) {
+      const shimContent = readFileSync(shimSourcePath);
+      writeFileSync(shimDestPath, shimContent);
+      chmodSync(shimDestPath, 0o755);
+    }
 
     for (const tool of tools) {
       const shimPath = join(targetBinDir, tool);

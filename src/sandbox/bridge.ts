@@ -1,6 +1,6 @@
-import { listen, serve, type Socket, type SocketListener, type Server } from 'bun';
+import { listen, type Socket, type SocketListener } from 'bun';
 import { spawn } from 'bun';
-import { existsSync, unlinkSync, mkdirSync, chmodSync } from 'fs';
+import { existsSync, unlinkSync, mkdirSync, chmodSync, readFileSync } from 'fs';
 import { join } from 'path';
 
 export interface BridgeRequest {
@@ -12,26 +12,38 @@ export interface BridgeRequest {
 
 export class HostBridge {
   private listener: SocketListener<unknown> | null = null;
-  private proxyServer: Server<unknown> | null = null;
   private socketPath: string;
+  private workspacePath: string;
   private sandboxToken?: string;
-  private proxyPort: number = 0;
+  private hostKeys: Record<string, string> = {};
 
   constructor(workspacePath: string, sandboxToken?: string) {
+    this.workspacePath = workspacePath;
     if (!existsSync(workspacePath)) {
       mkdirSync(workspacePath, { recursive: true });
     }
+    chmodSync(workspacePath, 0o777);
     this.socketPath = join(workspacePath, 'bridge.sock');
     this.sandboxToken = sandboxToken;
+    this.harvestHostKeys();
+  }
+
+  private harvestHostKeys() {
+    const authPath = join(process.env.HOME || '', '.local/share/opencode/auth.json');
+    if (existsSync(authPath)) {
+      try {
+        const auth = JSON.parse(readFileSync(authPath, 'utf-8'));
+        if (auth.google?.key) this.hostKeys.google = auth.google.key;
+        if (auth.openai?.key) this.hostKeys.openai = auth.openai.key;
+        if (auth.anthropic?.key) this.hostKeys.anthropic = auth.anthropic.key;
+      } catch (e) {
+        // Ignore
+      }
+    }
   }
 
   async start() {
-    // 1. Start Unix Socket Bridge
-    if (existsSync(this.socketPath)) {
-      unlinkSync(this.socketPath);
-    }
-
-    console.log(`[Bridge] Starting Unix bridge on ${this.socketPath}...`);
+    if (existsSync(this.socketPath)) unlinkSync(this.socketPath);
 
     this.listener = listen({
       unix: this.socketPath,
@@ -41,84 +53,17 @@ export class HostBridge {
             const request: BridgeRequest = JSON.parse(data.toString());
             await this.handleRequest(socket, request);
           } catch (error) {
-            console.error('[Bridge] Error handling data:', error);
             socket.write(JSON.stringify({ type: 'error', message: String(error) }));
             socket.end();
           }
         },
-        error: (socket, error) => {
-          console.error('[Bridge] Socket error:', error);
-        },
       },
     });
-
     chmodSync(this.socketPath, 0o777);
-
-    // 2. Start API Proxy for LLM Providers
-    this.proxyServer = serve({
-      port: 0, // Random available port
-      async fetch(req) {
-        const url = new URL(req.url);
-        let targetUrl: string | null = null;
-        let authHeaderName: string | null = null;
-        let authHeaderValue: string | null = null;
-
-        // Detect Provider and set Target + Key
-        if (url.pathname.startsWith('/google')) {
-          targetUrl =
-            'https://generativelanguage.googleapis.com' + url.pathname.replace('/google', '');
-          authHeaderName = 'x-goog-api-key';
-          authHeaderValue =
-            process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GOOGLE_API_KEY || '';
-        } else if (url.pathname.startsWith('/openai')) {
-          targetUrl = 'https://api.openai.com' + url.pathname.replace('/openai', '');
-          authHeaderName = 'Authorization';
-          authHeaderValue = `Bearer ${process.env.OPENAI_API_KEY || ''}`;
-        } else if (url.pathname.startsWith('/anthropic')) {
-          targetUrl = 'https://api.anthropic.com' + url.pathname.replace('/anthropic', '');
-          authHeaderName = 'x-api-key';
-          authHeaderValue = process.env.ANTHROPIC_API_KEY || '';
-        }
-
-        if (!targetUrl) {
-          return new Response('Not Found or Unsupported Provider', { status: 404 });
-        }
-
-        console.log(`[Proxy] Forwarding ${url.pathname} -> ${targetUrl}`);
-
-        const headers = new Headers(req.headers);
-        headers.delete('host');
-        if (authHeaderName && authHeaderValue) {
-          headers.set(authHeaderName, authHeaderValue);
-        }
-
-        try {
-          const response = await fetch(targetUrl + url.search, {
-            method: req.method,
-            headers: headers,
-            body: req.body,
-          });
-
-          return response;
-        } catch (error) {
-          console.error('[Proxy] Forwarding error:', error);
-          return new Response('Proxy Error', { status: 502 });
-        }
-      },
-    });
-
-    if (this.proxyServer) {
-      this.proxyPort = (this.proxyServer.port as number) || 0;
-      console.log(`[Bridge] API Proxy started on port ${this.proxyPort}`);
-    }
+    console.log(`[Bridge] Started on ${this.socketPath}`);
   }
 
   private async handleRequest(socket: Socket<unknown>, request: BridgeRequest) {
-    console.log(
-      `[Bridge] Executing: ${request.command} ${request.args.join(' ')} (cwd: ${request.cwd})`,
-    );
-
-    // Whitelist check
     const allowedCommands = ['gh', 'git'];
     if (!allowedCommands.includes(request.command)) {
       socket.write(
@@ -128,10 +73,8 @@ export class HostBridge {
       return;
     }
 
-    const commandPath = request.command;
-
     try {
-      const proc = spawn([commandPath, ...request.args], {
+      const proc = spawn([request.command, ...request.args], {
         cwd: existsSync(request.cwd) ? request.cwd : process.cwd(),
         env: {
           ...process.env,
@@ -151,7 +94,6 @@ export class HostBridge {
       socket.write(JSON.stringify({ type: 'exit', code: exitCode }));
       socket.end();
     } catch (error) {
-      console.error('[Bridge] Execution error:', error);
       socket.write(JSON.stringify({ type: 'error', message: String(error) }));
       socket.end();
     }
@@ -176,17 +118,10 @@ export class HostBridge {
 
   stop() {
     this.listener?.stop();
-    this.proxyServer?.stop();
-    if (existsSync(this.socketPath)) {
-      unlinkSync(this.socketPath);
-    }
+    if (existsSync(this.socketPath)) unlinkSync(this.socketPath);
   }
 
   getSocketPath() {
     return this.socketPath;
-  }
-
-  getProxyPort() {
-    return this.proxyPort;
   }
 }

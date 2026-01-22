@@ -1,9 +1,20 @@
+import { spawn } from 'bun';
 import { OpenCodeAgent, type OpenCodeEvent } from './opencode';
 import { MockProcess } from './mock';
-import { writeFileSync, readFileSync, existsSync, mkdirSync, chmodSync, copyFileSync } from 'fs';
+import {
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  mkdirSync,
+  chmodSync,
+  copyFileSync,
+  statSync,
+  readdirSync,
+} from 'fs';
 import { type Agent } from './agent';
 import { SandboxManager } from './sandbox/manager';
 import { join } from 'path';
+import os from 'os';
 
 const ANIMALS = [
   'panda',
@@ -165,10 +176,24 @@ export class SessionManager {
 
       const sandboxBin = join(this.workspacePath, '.bin');
       this.sandboxManager.setupShims(sandboxBin);
-      chmodSync(sandboxBin, 0o777);
+      this.chmodRecursive(sandboxBin, 0o777);
     }
 
     this.loadPersistence();
+  }
+
+  private chmodRecursive(path: string, mode: number) {
+    if (!existsSync(path)) return;
+    try {
+      chmodSync(path, mode);
+      if (statSync(path).isDirectory()) {
+        for (const item of readdirSync(path)) {
+          this.chmodRecursive(join(path, item), mode);
+        }
+      }
+    } catch (e) {
+      // Ignore
+    }
   }
 
   private savePersistence() {
@@ -273,55 +298,51 @@ export class SessionManager {
 
     if (!existsSync(sessionWorkspace)) {
       mkdirSync(sessionWorkspace, { recursive: true });
-      chmodSync(sessionWorkspace, 0o777);
     }
 
-    // Ensure .local and .config are writable
     const dotLocal = join(sessionWorkspace, '.local');
     const dotConfig = join(sessionWorkspace, '.config');
-    if (!existsSync(dotLocal)) {
-      mkdirSync(dotLocal);
-      chmodSync(dotLocal, 0o777);
-    }
-    if (!existsSync(dotConfig)) {
-      mkdirSync(dotConfig);
-      chmodSync(dotConfig, 0o777);
-    }
+    const dotCache = join(sessionWorkspace, '.cache');
+    if (!existsSync(dotLocal)) mkdirSync(dotLocal, { recursive: true });
+    if (!existsSync(dotConfig)) mkdirSync(dotConfig, { recursive: true });
+    if (!existsSync(dotCache)) mkdirSync(dotCache, { recursive: true });
 
-    // Sync Config if specified
     const hostConfigPath = process.env.OPENCODE_CONFIG_PATH;
     if (hostConfigPath && existsSync(hostConfigPath)) {
       const sandboxConfigDir = join(sessionWorkspace, '.config', 'opencode');
       if (!existsSync(sandboxConfigDir)) mkdirSync(sandboxConfigDir, { recursive: true });
       copyFileSync(hostConfigPath, join(sandboxConfigDir, 'opencode.json'));
-      chmodSync(sandboxConfigDir, 0o777);
-      chmodSync(join(sandboxConfigDir, 'opencode.json'), 0o666);
     }
 
-    // Sync Auth if found (usually in ~/.local/share/opencode/auth.json)
-    const hostAuthPath =
-      process.env.OPENCODE_AUTH_PATH ||
-      join(process.env.HOME || '', '.local/share/opencode/auth.json');
+    const hostAuthPath = join(os.homedir(), '.local/share/opencode/auth.json');
     if (existsSync(hostAuthPath)) {
       const sandboxDataDir = join(sessionWorkspace, '.local', 'share', 'opencode');
       if (!existsSync(sandboxDataDir)) mkdirSync(sandboxDataDir, { recursive: true });
       copyFileSync(hostAuthPath, join(sandboxDataDir, 'auth.json'));
-      chmodSync(sandboxDataDir, 0o777);
-      chmodSync(join(sandboxDataDir, 'auth.json'), 0o666);
     }
 
-    const proxyPort = this.sandboxManager?.getProxyPort() || 0;
+    this.chmodRecursive(sessionWorkspace, 0o777);
+
+    const entrypointPath = join(sessionWorkspace, 'entrypoint.sh');
+    const entrypoint = `#!/bin/bash
+export HOME="${sessionWorkspace}"
+export XDG_CONFIG_HOME="${sessionWorkspace}/.config"
+export PATH="${this.workspacePath}/.bin:$PATH"
+exec "$@"
+`;
+    writeFileSync(entrypointPath, entrypoint);
+    chmodSync(entrypointPath, 0o755);
 
     const session = new OpenCodeAgent(sid, {
       workspacePath: sessionWorkspace,
       useSandbox: process.env.USE_SANDBOX === 'true',
       sandboxBinDir: join(this.workspacePath, '.bin'),
+      entrypoint: entrypointPath,
       env: {
-        HOME: sessionWorkspace,
-        XDG_CONFIG_HOME: join(sessionWorkspace, '.config'),
-        GOOGLE_GENERATIVE_AI_BASE_URL: `http://localhost:${proxyPort}/google`,
-        OPENAI_BASE_URL: `http://localhost:${proxyPort}/openai/v1`,
-        ANTHROPIC_BASE_URL: `http://localhost:${proxyPort}/anthropic`,
+        GOOGLE_API_KEY: process.env.GOOGLE_API_KEY || '',
+        GOOGLE_GENERATIVE_AI_API_KEY: process.env.GOOGLE_API_KEY || '',
+        OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
+        ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
       },
     });
 
@@ -376,7 +397,6 @@ export class SessionManager {
   }
 
   async stopAll() {
-    console.log(`[Bridge] Stopping all managed sessions...`);
     const stopPromises = [];
     for (const session of this.sessions.values()) {
       stopPromises.push(session.stop());
