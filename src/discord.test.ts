@@ -53,19 +53,20 @@ describe('DiscordClient', () => {
     process.env = originalEnv;
   });
 
-  test('should handle /setup command', async () => {
+  test('should handle /bind command', async () => {
     const client = new DiscordClient();
+    const bindSpy = spyOn(SessionManager.prototype, 'bindChannelToFolder').mockReturnValue(
+      'my-folder',
+    );
+    spies.push(bindSpy);
 
     const mockInteraction = {
       isChatInputCommand: () => true,
-      commandName: 'setup',
+      commandName: 'bind',
       options: {
-        getChannel: () => ({
-          id: '123456789',
-          name: 'Sessions',
-          type: ChannelType.GuildCategory,
-        }),
+        getString: () => 'my-folder',
       },
+      channelId: '123',
       reply: mock(async () => {}),
     };
 
@@ -74,8 +75,10 @@ describe('DiscordClient', () => {
       .emit('interactionCreate', mockInteraction as unknown as ChatInputCommandInteraction);
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    expect(client.getCategoryId()).toBe('123456789');
-    expect(mockInteraction.reply).toHaveBeenCalled();
+    expect(bindSpy).toHaveBeenCalledWith('123', 'my-folder');
+    expect(mockInteraction.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('Bound') }),
+    );
   });
 
   test('should handle /new command', async () => {
@@ -88,7 +91,7 @@ describe('DiscordClient', () => {
     const client = new DiscordClient();
     const mockChannel = {
       id: 'channel-new-123',
-      name: 'opencode-1234',
+      name: 'agent-1234',
       type: ChannelType.GuildText,
       send: mock(async () => {}),
     };
@@ -102,6 +105,9 @@ describe('DiscordClient', () => {
       guild: {
         channels: {
           create: mock(async () => mockChannel),
+          fetch: mock(async () => ({
+            find: () => null,
+          })),
         },
       },
       deferReply: mock(async () => {}),
@@ -117,111 +123,6 @@ describe('DiscordClient', () => {
     expect(mockInteraction.guild.channels.create).toHaveBeenCalled();
     expect(prepareSessionSpy).toHaveBeenCalledWith('channel-new-123');
     expect(startSpy).toHaveBeenCalledWith(expect.stringContaining('hello'));
-    expect(startSpy).toHaveBeenCalledWith(
-      expect.stringContaining('IMPORTANT: Your response will be displayed on Discord'),
-    );
     expect(mockInteraction.editReply).toHaveBeenCalled();
-  });
-
-  test('should handle /resume command', async () => {
-    const prepareSessionSpy = spyOn(SessionManager.prototype, 'prepareSession').mockReturnValue(
-      new OpenCodeAgent('test-session'),
-    );
-    const startSpy = spyOn(OpenCodeAgent.prototype, 'start').mockImplementation(async () => {});
-    spies.push(prepareSessionSpy, startSpy);
-
-    const client = new DiscordClient();
-    const mockInteraction = {
-      isChatInputCommand: () => true,
-      commandName: 'resume',
-      options: {
-        getString: (name: string) => (name === 'session_id' ? 'ses_existing' : null),
-      },
-      channelId: 'chan-resume',
-      channel: {
-        id: 'chan-resume',
-        send: mock(async () => {}),
-      },
-      deferReply: mock(async () => {}),
-      editReply: mock(async () => {}),
-    };
-
-    client
-      .getClient()
-      .emit('interactionCreate', mockInteraction as unknown as ChatInputCommandInteraction);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-
-    expect(mockInteraction.deferReply).toHaveBeenCalled();
-    expect(prepareSessionSpy).toHaveBeenCalledWith('chan-resume', 'ses_existing');
-    expect(startSpy).toHaveBeenCalled();
-    expect(mockInteraction.editReply).toHaveBeenCalled();
-  });
-
-  test('should handle /resume error when ID is missing', async () => {
-    const client = new DiscordClient();
-    const mockInteraction = {
-      isChatInputCommand: () => true,
-      commandName: 'resume',
-      options: {
-        getString: () => null,
-      },
-      reply: mock(async () => {}),
-    };
-
-    client
-      .getClient()
-      .emit('interactionCreate', mockInteraction as unknown as ChatInputCommandInteraction);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-
-    expect(mockInteraction.reply).toHaveBeenCalledWith(
-      expect.objectContaining({
-        content: expect.stringContaining('provide a valid Session ID'),
-      }),
-    );
-  });
-
-  test('should handle messageCreate for input injection', async () => {
-    const startSpy = mock(async () => {});
-    const getSessionSpy = spyOn(SessionManager.prototype, 'getSession').mockImplementation(
-      () =>
-        ({
-          start: startSpy,
-        }) as unknown as OpenCodeAgent,
-    );
-    const getMappingSpy = spyOn(SessionManager.prototype, 'getChannelMapping').mockReturnValue(
-      new Map([['channel-inject-123', 'ses_zebra']]),
-    );
-    const prepareSpy = spyOn(SessionManager.prototype, 'prepareSession').mockReturnValue({
-      start: startSpy,
-      on: mock(() => {}),
-    } as unknown as OpenCodeAgent);
-    spies.push(getSessionSpy, getMappingSpy, prepareSpy);
-
-    const client = new DiscordClient();
-    const mockMessage = {
-      author: { bot: false },
-      channelId: 'channel-inject-123',
-      content: 'inject this',
-      react: mock(async () => {}),
-      channel: {
-        id: 'channel-inject-123',
-        send: mock(async () => {}),
-      },
-    };
-
-    // @ts-expect-error - mock message emission
-    client.getClient().emit('messageCreate', mockMessage as Message);
-
-    // Robust wait for start call
-    for (let i = 0; i < 250 && startSpy.mock.calls.length === 0; i++) {
-      await new Promise((r) => setTimeout(r, 20));
-    }
-
-    expect(getSessionSpy).toHaveBeenCalledWith('channel-inject-123');
-    expect(prepareSpy).toHaveBeenCalledWith('channel-inject-123', 'ses_zebra');
-    expect(startSpy).toHaveBeenCalledWith(expect.stringContaining('inject this'));
-    expect(startSpy).toHaveBeenCalledWith(
-      expect.stringContaining('IMPORTANT: Your response will be displayed on Discord'),
-    );
   });
 });

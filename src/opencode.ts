@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import { spawn, type Subprocess } from 'bun';
-import { writeFileSync, existsSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { type Agent } from './agent';
 
 export interface OpenCodeEvent {
@@ -25,6 +25,8 @@ export interface OpenCodeAgentOptions {
   workspacePath?: string;
   useSandbox?: boolean;
   sandboxBinDir?: string;
+  entrypoint?: string;
+  env?: Record<string, string>;
 }
 
 /**
@@ -41,6 +43,8 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
   private workspacePath: string;
   private useSandbox: boolean;
   private sandboxBinDir?: string;
+  private entrypoint?: string;
+  private extraEnv: Record<string, string>;
 
   constructor(
     private sessionId?: string,
@@ -50,6 +54,8 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
     this.workspacePath = options.workspacePath || process.cwd();
     this.useSandbox = options.useSandbox || false;
     this.sandboxBinDir = options.sandboxBinDir;
+    this.entrypoint = options.entrypoint;
+    this.extraEnv = options.env || {};
 
     if (!existsSync('logs')) mkdirSync('logs');
     const logId = this.sessionId || `temp_${Date.now()}`;
@@ -69,37 +75,30 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
       args.push(prompt);
     }
 
-    const commandPath = process.env.OPENCODE_BINARY || '/opt/homebrew/bin/opencode';
+    const opencodeBinary = process.env.OPENCODE_BINARY || '/opt/homebrew/bin/opencode';
 
     let spawnArgs: string[];
-    const spawnEnv = { ...process.env };
+    const spawnEnv = { ...process.env, ...this.extraEnv };
 
     if (this.useSandbox) {
-      // Wrap with alclessctl
-      // We use --plain to avoid rsyncing, and manage the workspace manually via --workdir
-      // We escape each argument for sh -c
-      const escapedArgs = args
-        .map((a) => {
-          // Escape single quotes for the sh -c string
-          return "'" + a.replace(/'/g, "'\\''") + "'";
-        })
-        .join(' ');
-
-      const sandboxCommand = [
+      // Simplified command line using entrypoint script
+      spawnArgs = [
         'alclessctl',
         'shell',
         '--plain',
+        '--tty=false',
         '--workdir',
         this.workspacePath,
         'default',
-        'sh',
-        '-c',
-        `export PATH="${this.sandboxBinDir}:$PATH" && "${commandPath}" ${escapedArgs}`,
+        '--',
+        '/bin/bash',
+        this.entrypoint || './entrypoint.sh',
+        opencodeBinary,
+        ...args,
       ];
-      spawnArgs = sandboxCommand;
       console.log(`[Agent] Sandboxed Spawning: ${spawnArgs.join(' ')}`);
     } else {
-      spawnArgs = [commandPath, ...args];
+      spawnArgs = [opencodeBinary, ...args];
       console.log(`[Agent] Spawning: ${spawnArgs.join(' ')}`);
     }
 
@@ -114,7 +113,6 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
       console.log(`[Agent] PID: ${this.process.pid}`);
       this.startHeartbeat();
 
-      // Read streams concurrently
       const stdoutReader =
         this.process.stdout instanceof ReadableStream
           ? this.readStream(this.process.stdout, (data) => {
@@ -152,9 +150,6 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
         const { done, value } = await reader.read();
         if (done) break;
         this.lastActivity = Date.now();
-        if (value.length > 1024) {
-          console.log(`[Agent] Received large data chunk: ${(value.length / 1024).toFixed(1)}KB`);
-        }
         callback(decoder.decode(value));
       }
     } catch (error) {
@@ -169,9 +164,6 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
     this.heartbeatTimer = setInterval(() => {
       const inactiveSeconds = Math.floor((Date.now() - this.lastActivity) / 1000);
       if (inactiveSeconds >= 5) {
-        console.log(
-          `[Agent Heartbeat] PID ${this.process?.pid} active, no log activity for ${inactiveSeconds}s...`,
-        );
         this.emit('heartbeat', inactiveSeconds);
       }
     }, 5000);
@@ -195,7 +187,7 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
         const event: OpenCodeEvent = JSON.parse(line);
         this.processEvent(event);
       } catch {
-        // Skip malformed JSON or partials
+        // Skip malformed JSON
       }
     }
   }
@@ -210,41 +202,19 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
         this.emit('output', text);
       }
     } else if (event.type === 'step_start') {
-      console.log('[Agent] Event: step_start');
       this.emit('thinking', true);
     } else if (event.type === 'step_finish') {
       const reason = event.part?.reason;
-      console.log(`[Agent] Event: step_finish (${reason})`);
       this.emit('thinking', false);
       if (reason === 'stop') this.emit('idle');
     } else if (event.type === 'tool_use') {
       const toolName = event.part?.tool || event.tool;
-      let inputStr = '';
-      let outputLen = 0;
-      if (event.part?.state?.input) {
-        inputStr = JSON.stringify(event.part.state.input);
-        if (inputStr.length > 200) {
-          inputStr = inputStr.substring(0, 197) + '...';
-        }
-      }
-      if (typeof event.part?.state?.output === 'string') {
-        outputLen = event.part.state.output.length;
-      }
-      console.log(
-        `[Agent] Tool Use: ${toolName} ${inputStr}${outputLen > 0 ? ` (Output: ${(outputLen / 1024).toFixed(1)}KB)` : ''}`,
-      );
-      if (outputLen > 102400) {
-        console.log(
-          '[Agent] Large tool output detected. LLM will likely take some time to process this context...',
-        );
-      }
-    } else {
-      console.log(`[Agent] Event: ${event.type}`);
+      console.log(`[Agent] Tool Use: ${toolName}`);
     }
   }
 
   sendInput(_text: string) {
-    console.warn('[Agent] Received input but session is not interactive.');
+    console.warn('[Agent] Session is not interactive.');
   }
 
   async stop() {

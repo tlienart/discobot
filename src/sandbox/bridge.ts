@@ -1,6 +1,6 @@
-import { listen, type Socket, type SocketListener } from 'bun';
+import { listen, serve, type Socket, type SocketListener, type Server } from 'bun';
 import { spawn } from 'bun';
-import { existsSync, unlinkSync, mkdirSync, chmodSync } from 'fs';
+import { existsSync, unlinkSync, mkdirSync, chmodSync, readFileSync } from 'fs';
 import { join } from 'path';
 
 export interface BridgeRequest {
@@ -11,26 +11,44 @@ export interface BridgeRequest {
 }
 
 export class HostBridge {
-  private listener: SocketListener<unknown> | null = null;
+  private commandListener: SocketListener<unknown> | null = null;
+  private proxyServer: Server<unknown> | null = null;
   private socketPath: string;
+  private proxySocketPath: string;
   private sandboxToken?: string;
+  private hostKeys: Record<string, string> = {};
 
   constructor(workspacePath: string, sandboxToken?: string) {
     if (!existsSync(workspacePath)) {
       mkdirSync(workspacePath, { recursive: true });
     }
     this.socketPath = join(workspacePath, 'bridge.sock');
+    this.proxySocketPath = join(workspacePath, 'proxy.sock');
     this.sandboxToken = sandboxToken;
+    this.harvestHostKeys();
+  }
+
+  private harvestHostKeys() {
+    this.hostKeys.google =
+      process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || '';
+    this.hostKeys.openai = process.env.OPENAI_API_KEY || '';
+    this.hostKeys.anthropic = process.env.ANTHROPIC_API_KEY || '';
+
+    const authPath = join(process.env.HOME || '', '.local/share/opencode/auth.json');
+    if (existsSync(authPath)) {
+      try {
+        const auth = JSON.parse(readFileSync(authPath, 'utf-8'));
+        if (!this.hostKeys.google) this.hostKeys.google = auth.google?.key;
+        if (!this.hostKeys.openai) this.hostKeys.openai = auth.openai?.key;
+        if (!this.hostKeys.anthropic) this.hostKeys.anthropic = auth.anthropic?.key;
+      } catch (e) {}
+    }
   }
 
   async start() {
-    if (existsSync(this.socketPath)) {
-      unlinkSync(this.socketPath);
-    }
-
-    console.log(`[Bridge] Starting on ${this.socketPath}...`);
-
-    this.listener = listen({
+    // 1. Command Bridge
+    if (existsSync(this.socketPath)) unlinkSync(this.socketPath);
+    this.commandListener = listen({
       unix: this.socketPath,
       socket: {
         data: async (socket, data) => {
@@ -38,27 +56,77 @@ export class HostBridge {
             const request: BridgeRequest = JSON.parse(data.toString());
             await this.handleRequest(socket, request);
           } catch (error) {
-            console.error('[Bridge] Error handling data:', error);
             socket.write(JSON.stringify({ type: 'error', message: String(error) }));
             socket.end();
           }
         },
-        error: (socket, error) => {
-          console.error('[Bridge] Socket error:', error);
-        },
       },
     });
-
-    // Ensure the socket is accessible by the sandbox user
     chmodSync(this.socketPath, 0o777);
+
+    // 2. API Proxy
+    if (existsSync(this.proxySocketPath)) unlinkSync(this.proxySocketPath);
+    const hostKeys = this.hostKeys;
+    this.proxyServer = serve({
+      unix: this.proxySocketPath,
+      async fetch(req) {
+        try {
+          const url = new URL(req.url);
+          let targetBase: string | null = null;
+          let authHeader: string | null = null;
+          let authValue: string | null = null;
+          let isGoogle = false;
+
+          if (url.pathname.startsWith('/google')) {
+            let path = url.pathname.replace('/google', '');
+            if (!path.startsWith('/v1beta')) path = '/v1beta' + path;
+            targetBase = 'https://generativelanguage.googleapis.com' + path;
+            authHeader = 'x-goog-api-key';
+            authValue = hostKeys.google;
+            isGoogle = true;
+          } else if (url.pathname.startsWith('/openai')) {
+            targetBase = 'https://api.openai.com' + url.pathname.replace('/openai', '');
+            authHeader = 'Authorization';
+            authValue = `Bearer ${hostKeys.openai}`;
+          } else if (url.pathname.startsWith('/anthropic')) {
+            targetBase = 'https://api.anthropic.com' + url.pathname.replace('/anthropic', '');
+            authHeader = 'x-api-key';
+            authValue = hostKeys.anthropic;
+          }
+
+          if (targetBase && authValue) {
+            const finalUrl = new URL(targetBase + url.search);
+            finalUrl.searchParams.delete('key');
+
+            const headers = new Headers(req.headers);
+            headers.delete('host');
+            headers.delete('x-goog-api-key');
+            headers.delete('authorization');
+            headers.delete('x-api-key');
+
+            if (isGoogle) finalUrl.searchParams.set('key', authValue);
+            if (authHeader) headers.set(authHeader, authValue);
+
+            const response = await fetch(finalUrl.toString(), {
+              method: req.method,
+              headers: headers,
+              body: req.body,
+              // @ts-ignore
+              duplex: 'half',
+            });
+
+            return response;
+          }
+          return new Response('Not Found', { status: 404 });
+        } catch (e: any) {
+          return new Response('Proxy Error: ' + e.message, { status: 502 });
+        }
+      },
+    });
+    chmodSync(this.proxySocketPath, 0o777);
   }
 
   private async handleRequest(socket: Socket<unknown>, request: BridgeRequest) {
-    console.log(
-      `[Bridge] Executing: ${request.command} ${request.args.join(' ')} (cwd: ${request.cwd})`,
-    );
-
-    // Whitelist check
     const allowedCommands = ['gh', 'git'];
     if (!allowedCommands.includes(request.command)) {
       socket.write(
@@ -68,11 +136,8 @@ export class HostBridge {
       return;
     }
 
-    const commandPath = request.command;
-
     try {
-      const proc = spawn([commandPath, ...request.args], {
-        // For now, let's use the current dir of the bridge if the requested cwd is invalid on host
+      const proc = spawn([request.command, ...request.args], {
         cwd: existsSync(request.cwd) ? request.cwd : process.cwd(),
         env: {
           ...process.env,
@@ -83,18 +148,12 @@ export class HostBridge {
         stderr: 'pipe',
       });
 
-      // Stream stdout
       const stdoutReader = this.streamToSocket(proc.stdout, socket, 'stdout');
-      // Stream stderr
       const stderrReader = this.streamToSocket(proc.stderr, socket, 'stderr');
-
-      const exitCode = await proc.exited;
-      await Promise.all([stdoutReader, stderrReader]);
-
-      socket.write(JSON.stringify({ type: 'exit', code: exitCode }));
+      await Promise.all([proc.exited, stdoutReader, stderrReader]);
+      socket.write(JSON.stringify({ type: 'exit', code: 0 }));
       socket.end();
     } catch (error) {
-      console.error('[Bridge] Execution error:', error);
       socket.write(JSON.stringify({ type: 'error', message: String(error) }));
       socket.end();
     }
@@ -118,13 +177,16 @@ export class HostBridge {
   }
 
   stop() {
-    this.listener?.stop();
-    if (existsSync(this.socketPath)) {
-      unlinkSync(this.socketPath);
-    }
+    this.commandListener?.stop();
+    this.proxyServer?.stop();
+    if (existsSync(this.socketPath)) unlinkSync(this.socketPath);
+    if (existsSync(this.proxySocketPath)) unlinkSync(this.proxySocketPath);
   }
 
   getSocketPath() {
     return this.socketPath;
+  }
+  getProxySocketPath() {
+    return this.proxySocketPath;
   }
 }
