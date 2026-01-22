@@ -1,4 +1,3 @@
-import { spawn } from 'bun';
 import { OpenCodeAgent, type OpenCodeEvent } from './opencode';
 import { MockProcess } from './mock';
 import {
@@ -137,6 +136,7 @@ export interface SessionData {
   sessionCounts: Record<string, number>;
   aliases: Record<string, string>;
   bindings: Record<string, string>;
+  sessionPorts: Record<string, number>;
 }
 
 export class SessionManager {
@@ -146,6 +146,7 @@ export class SessionManager {
   private channelToCount: Map<string, number> = new Map();
   private aliasToSession: Map<string, string> = new Map();
   private channelToBinding: Map<string, string> = new Map();
+  private sessionToPort: Map<string, number> = new Map();
   private categoryId: string | null = null;
   private readonly PERSISTENCE_FILE: string;
   private sandboxManager: SandboxManager | null = null;
@@ -201,6 +202,7 @@ export class SessionManager {
       sessionCounts: Object.fromEntries(this.channelToCount.entries()),
       aliases: Object.fromEntries(this.aliasToSession.entries()),
       bindings: Object.fromEntries(this.channelToBinding.entries()),
+      sessionPorts: Object.fromEntries(this.sessionToPort.entries()),
     };
     writeFileSync(this.PERSISTENCE_FILE, JSON.stringify(data, null, 2));
   }
@@ -218,6 +220,10 @@ export class SessionManager {
         }
         if (data.aliases) this.aliasToSession = new Map(Object.entries(data.aliases));
         if (data.bindings) this.channelToBinding = new Map(Object.entries(data.bindings));
+        if (data.sessionPorts)
+          this.sessionToPort = new Map(
+            Object.entries(data.sessionPorts).map(([k, v]) => [k, Number(v)]),
+          );
         this.categoryId = data.categoryId || null;
       } catch {
         console.error('Failed to load persistence:');
@@ -304,6 +310,17 @@ export class SessionManager {
     return '127.0.0.1';
   }
 
+  private getSessionPort(sessionId: string): number {
+    if (this.sessionToPort.has(sessionId)) {
+      return this.sessionToPort.get(sessionId)!;
+    }
+    // Find a free-looking port in the 10000-15000 range
+    const port = Math.floor(Math.random() * 5000) + 10000;
+    this.sessionToPort.set(sessionId, port);
+    this.savePersistence();
+    return port;
+  }
+
   prepareSession(channelId: string, sessionId?: string): Agent {
     const sid = sessionId ? this.resolveSessionId(sessionId) : undefined;
     const binding = this.getBinding(channelId);
@@ -322,8 +339,8 @@ export class SessionManager {
     if (!existsSync(dotConfig)) mkdirSync(dotConfig, { recursive: true });
     if (!existsSync(dotCache)) mkdirSync(dotCache, { recursive: true });
 
-    // Generate port for Sandbox Local Bridge
-    const sandboxLocalPort = Math.floor(Math.random() * 5000) + 10000;
+    // Generate/Retrieve stable port for this session
+    const sandboxLocalPort = this.getSessionPort(sid || folderName);
 
     // Sync Config & PATCH it for local bridge
     const hostConfigPath = this.config.sandbox.opencodeConfigPath;
@@ -362,7 +379,7 @@ export class SessionManager {
     const bridgeSock = this.sandboxManager?.getSocketPath() || '';
     const proxySock = this.sandboxManager?.getProxySocketPath() || '';
 
-    // Create entrypoint.sh with trap for cleanup
+    // Create entrypoint.sh with trap for cleanup and session settling
     const entrypointPath = join(sessionWorkspace, 'entrypoint.sh');
     const entrypoint = `#!/bin/bash
 export HOME="${sessionWorkspace}"
@@ -374,32 +391,26 @@ export BRIDGE_SOCK="${bridgeSock}"
 export PROXY_SOCK="${proxySock}"
 export PATH="${this.workspacePath}/.bin:$PATH"
 
-# Cleanup function
+# Ensure cleanup on exit
 cleanup() {
     [ ! -z "$BRIDGE_PID" ] && kill $BRIDGE_PID 2>/dev/null
 }
 trap cleanup EXIT
 
-# Start HTTP-to-Unix Bridge (inside sandbox)
-# Read final port from output
+# Proactive cleanup of any lingering bridges for this port
+pkill -f "http_to_unix.py ${sandboxLocalPort}" 2>/dev/null
+
+# Start HTTP-to-Unix Bridge
 python3 "${this.workspacePath}/.bin/http_to_unix.py" ${sandboxLocalPort} > "${sessionWorkspace}/bridge.log" 2>&1 &
 BRIDGE_PID=$!
 
-# Wait for bridge and discover real port if it shifted
-ACTUAL_PORT=${sandboxLocalPort}
-for i in {1..20}; do
-    if grep -q "PORT:" "${sessionWorkspace}/bridge.log"; then
-        ACTUAL_PORT=$(grep "PORT:" "${sessionWorkspace}/bridge.log" | cut -d: -f2)
-        break
-    fi
-    sleep 0.2
-done
+# Wait for bridge and settle SQLite (0.5s)
+sleep 0.5
 
-export GOOGLE_GENERATIVE_AI_BASE_URL="http://127.0.0.1:$ACTUAL_PORT/google"
-export OPENAI_BASE_URL="http://127.0.0.1:$ACTUAL_PORT/openai/v1"
-export ANTHROPIC_BASE_URL="http://127.0.0.1:$ACTUAL_PORT/anthropic"
-
-exec "$@"
+# Run Agent
+"$@"
+RET=$?
+exit $RET
 `;
     writeFileSync(entrypointPath, entrypoint);
     chmodSync(entrypointPath, 0o755);

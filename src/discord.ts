@@ -48,7 +48,6 @@ export class DiscordClient {
   private heartbeatTimers: Map<string, Timer> = new Map();
   private thinkingMessages: Map<string, Message> = new Map();
   private thinkingStartTimes: Map<string, number> = new Map();
-  private summarizingChannels: Set<string> = new Set();
   private lastToolUsed: Map<string, string> = new Map();
   private cleanupTimers: Map<string, Timer> = new Map();
 
@@ -71,6 +70,12 @@ export class DiscordClient {
     }
 
     const { token, clientId, guildId } = this.config.discord;
+
+    if (token) {
+      console.log(
+        `[Discord] Token loaded. Length: ${token.length}, Prefix: ${token.substring(0, 4)}...`,
+      );
+    }
 
     if (!token || !clientId || !guildId) {
       throw new Error('Missing Discord credentials in config.json');
@@ -154,32 +159,26 @@ export class DiscordClient {
           try {
             let parentId = this.sessionManager.getCategoryId();
 
-            // Validate parentId (must be numeric Snowflake)
             if (parentId && !/^\d+$/.test(parentId)) {
-              console.warn(`[Discord] Invalid category ID in storage: ${parentId}. Clearing.`);
               this.sessionManager.setCategoryId(null);
               parentId = null;
             }
 
             if (guild) {
               const channels = await guild.channels.fetch();
-              // Check if the stored category still exists and is a category
               const existingCategory = parentId ? channels.get(parentId) : null;
 
               if (!existingCategory || existingCategory.type !== ChannelType.GuildCategory) {
-                // Category missing or invalid type, find by name or create
                 // @ts-expect-error - Collection.find
                 const category = channels.find(
                   (c) =>
                     c?.type === ChannelType.GuildCategory &&
                     c.name.toLowerCase().includes('opencode'),
                 );
-
                 if (category) {
                   parentId = category.id;
                   this.sessionManager.setCategoryId(parentId);
                 } else {
-                  console.log('[Discord] Creating fresh OpenCode Sessions category...');
                   const newCategory = await guild.channels.create({
                     name: 'OpenCode Sessions',
                     type: ChannelType.GuildCategory,
@@ -204,7 +203,8 @@ export class DiscordClient {
                 .start(getDiscordPrompt(prompt))
                 .finally(() => this.channelBusy.delete(channel.id));
             }
-          } catch {
+          } catch (error) {
+            console.error(error);
             await interaction.editReply('Failed to create channel.');
           }
           break;
@@ -338,6 +338,8 @@ export class DiscordClient {
         await msg.delete().catch(() => {});
         this.thinkingMessages.delete(channel.id);
       }
+      this.thinkingStartTimes.delete(channel.id);
+      this.cleanupTimers.delete(channel.id);
     };
 
     session.on('event', (event: OpenCodeEvent) => {
@@ -347,8 +349,10 @@ export class DiscordClient {
         const alias = this.sessionManager.getAliasForSession(sid);
         channel.send(`🆔 **Session:** \`${alias || sid.replace('ses_', '')}\``).catch(() => {});
       }
-      const tool = event.part?.tool || event.tool;
-      if (tool) this.lastToolUsed.set(channel.id, tool);
+    });
+
+    session.on('tool_use', (toolName: string) => {
+      this.lastToolUsed.set(channel.id, toolName);
     });
 
     session.on('output', async (text: string) => {
@@ -368,14 +372,41 @@ export class DiscordClient {
           const interval = setInterval(() => channel.sendTyping().catch(() => {}), 5000);
           this.typingIntervals.set(channel.id, interval);
         }
+
+        if (!this.heartbeatTimers.has(channel.id)) {
+          this.thinkingStartTimes.set(channel.id, Date.now());
+          const heartbeat = setInterval(async () => {
+            const startTime = this.thinkingStartTimes.get(channel.id);
+            const elapsed = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
+            const tool = this.lastToolUsed.get(channel.id);
+
+            let statusText = 'Thinking';
+            if (tool) statusText += ` (Using ${tool})`;
+
+            let msg = this.thinkingMessages.get(channel.id);
+            if (!msg) {
+              msg = await channel
+                .send(`⏳ *${statusText}... (${elapsed}s)*`)
+                .catch(() => undefined);
+              if (msg) this.thinkingMessages.set(channel.id, msg);
+            } else {
+              await msg.edit(`⏳ *${statusText}... (${elapsed}s)*`).catch(() => {});
+            }
+          }, 10000);
+          this.heartbeatTimers.set(channel.id, heartbeat);
+        }
       } else {
         await cleanupThinking();
       }
     });
 
     session.on('idle', () => channel.send('✅').catch(() => {}));
-    session.on('error', (err) => channel.send(`❌ ${err.message}`).catch(() => {}));
+    session.on('error', (err) => {
+      cleanupThinking();
+      channel.send(`❌ ${err.message}`).catch(() => {});
+    });
     session.on('exit', (code) => {
+      cleanupThinking();
       if (code !== 0 && code !== null) channel.send(`⚠️ Exit ${code}`).catch(() => {});
     });
   }

@@ -1,10 +1,8 @@
 import { listen, type Socket, type SocketListener } from 'bun';
 import { spawn } from 'bun';
-import { existsSync, unlinkSync, mkdirSync, chmodSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, unlinkSync, mkdirSync, chmodSync, readFileSync } from 'fs';
 import { join } from 'path';
 import http from 'http';
-import https from 'https';
-import net from 'net';
 
 export interface BridgeRequest {
   command: string;

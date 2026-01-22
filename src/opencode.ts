@@ -209,7 +209,7 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
       if (reason === 'stop') this.emit('idle');
     } else if (event.type === 'tool_use') {
       const toolName = event.part?.tool || event.tool;
-      console.log(`[Agent] Tool Use: ${toolName}`);
+      this.emit('tool_use', toolName);
     }
   }
 
