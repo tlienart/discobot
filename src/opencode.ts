@@ -25,6 +25,7 @@ export interface OpenCodeAgentOptions {
   workspacePath?: string;
   useSandbox?: boolean;
   sandboxBinDir?: string;
+  env?: Record<string, string>;
 }
 
 /**
@@ -41,6 +42,7 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
   private workspacePath: string;
   private useSandbox: boolean;
   private sandboxBinDir?: string;
+  private extraEnv: Record<string, string>;
 
   constructor(
     private sessionId?: string,
@@ -50,6 +52,7 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
     this.workspacePath = options.workspacePath || process.cwd();
     this.useSandbox = options.useSandbox || false;
     this.sandboxBinDir = options.sandboxBinDir;
+    this.extraEnv = options.env || {};
 
     if (!existsSync('logs')) mkdirSync('logs');
     const logId = this.sessionId || `temp_${Date.now()}`;
@@ -72,7 +75,7 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
     const commandPath = process.env.OPENCODE_BINARY || '/opt/homebrew/bin/opencode';
 
     let spawnArgs: string[];
-    const spawnEnv = { ...process.env };
+    const spawnEnv = { ...process.env, ...this.extraEnv };
 
     if (this.useSandbox) {
       // Wrap with alclessctl
@@ -85,6 +88,10 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
         })
         .join(' ');
 
+      const envExports = Object.entries(this.extraEnv)
+        .map(([k, v]) => `export ${k}="${v}"`)
+        .join(' && ');
+
       const sandboxCommand = [
         'alclessctl',
         'shell',
@@ -95,7 +102,7 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
         'default',
         'sh',
         '-c',
-        `export PATH="${this.sandboxBinDir}:$PATH" && "${commandPath}" ${escapedArgs}`,
+        `${envExports ? envExports + ' && ' : ''}export PATH="${this.sandboxBinDir}:$PATH" && "${commandPath}" ${escapedArgs}`,
       ];
       spawnArgs = sandboxCommand;
       console.log(`[Agent] Sandboxed Spawning: ${spawnArgs.join(' ')}`);

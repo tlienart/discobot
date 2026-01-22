@@ -1,4 +1,4 @@
-import { listen, type Socket, type SocketListener } from 'bun';
+import { listen, serve, type Socket, type SocketListener, type Server } from 'bun';
 import { spawn } from 'bun';
 import { existsSync, unlinkSync, mkdirSync, chmodSync } from 'fs';
 import { join } from 'path';
@@ -12,8 +12,10 @@ export interface BridgeRequest {
 
 export class HostBridge {
   private listener: SocketListener<unknown> | null = null;
+  private proxyServer: Server<unknown> | null = null;
   private socketPath: string;
   private sandboxToken?: string;
+  private proxyPort: number = 0;
 
   constructor(workspacePath: string, sandboxToken?: string) {
     if (!existsSync(workspacePath)) {
@@ -24,11 +26,12 @@ export class HostBridge {
   }
 
   async start() {
+    // 1. Start Unix Socket Bridge
     if (existsSync(this.socketPath)) {
       unlinkSync(this.socketPath);
     }
 
-    console.log(`[Bridge] Starting on ${this.socketPath}...`);
+    console.log(`[Bridge] Starting Unix bridge on ${this.socketPath}...`);
 
     this.listener = listen({
       unix: this.socketPath,
@@ -49,8 +52,65 @@ export class HostBridge {
       },
     });
 
-    // Ensure the socket is accessible by the sandbox user
     chmodSync(this.socketPath, 0o777);
+
+    // 2. Start API Proxy for LLM Providers
+    this.proxyServer = serve({
+      port: 0, // Random available port
+      async fetch(req) {
+        const url = new URL(req.url);
+        let targetUrl: string | null = null;
+        let authHeaderName: string | null = null;
+        let authHeaderValue: string | null = null;
+
+        // Detect Provider and set Target + Key
+        if (url.pathname.startsWith('/google')) {
+          targetUrl =
+            'https://generativelanguage.googleapis.com' + url.pathname.replace('/google', '');
+          authHeaderName = 'x-goog-api-key';
+          authHeaderValue =
+            process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GOOGLE_API_KEY || '';
+        } else if (url.pathname.startsWith('/openai')) {
+          targetUrl = 'https://api.openai.com' + url.pathname.replace('/openai', '');
+          authHeaderName = 'Authorization';
+          authHeaderValue = `Bearer ${process.env.OPENAI_API_KEY || ''}`;
+        } else if (url.pathname.startsWith('/anthropic')) {
+          targetUrl = 'https://api.anthropic.com' + url.pathname.replace('/anthropic', '');
+          authHeaderName = 'x-api-key';
+          authHeaderValue = process.env.ANTHROPIC_API_KEY || '';
+        }
+
+        if (!targetUrl) {
+          return new Response('Not Found or Unsupported Provider', { status: 404 });
+        }
+
+        console.log(`[Proxy] Forwarding ${url.pathname} -> ${targetUrl}`);
+
+        const headers = new Headers(req.headers);
+        headers.delete('host');
+        if (authHeaderName && authHeaderValue) {
+          headers.set(authHeaderName, authHeaderValue);
+        }
+
+        try {
+          const response = await fetch(targetUrl + url.search, {
+            method: req.method,
+            headers: headers,
+            body: req.body,
+          });
+
+          return response;
+        } catch (error) {
+          console.error('[Proxy] Forwarding error:', error);
+          return new Response('Proxy Error', { status: 502 });
+        }
+      },
+    });
+
+    if (this.proxyServer) {
+      this.proxyPort = (this.proxyServer.port as number) || 0;
+      console.log(`[Bridge] API Proxy started on port ${this.proxyPort}`);
+    }
   }
 
   private async handleRequest(socket: Socket<unknown>, request: BridgeRequest) {
@@ -72,7 +132,6 @@ export class HostBridge {
 
     try {
       const proc = spawn([commandPath, ...request.args], {
-        // For now, let's use the current dir of the bridge if the requested cwd is invalid on host
         cwd: existsSync(request.cwd) ? request.cwd : process.cwd(),
         env: {
           ...process.env,
@@ -83,9 +142,7 @@ export class HostBridge {
         stderr: 'pipe',
       });
 
-      // Stream stdout
       const stdoutReader = this.streamToSocket(proc.stdout, socket, 'stdout');
-      // Stream stderr
       const stderrReader = this.streamToSocket(proc.stderr, socket, 'stderr');
 
       const exitCode = await proc.exited;
@@ -119,6 +176,7 @@ export class HostBridge {
 
   stop() {
     this.listener?.stop();
+    this.proxyServer?.stop();
     if (existsSync(this.socketPath)) {
       unlinkSync(this.socketPath);
     }
@@ -126,5 +184,9 @@ export class HostBridge {
 
   getSocketPath() {
     return this.socketPath;
+  }
+
+  getProxyPort() {
+    return this.proxyPort;
   }
 }

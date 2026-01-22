@@ -23,6 +23,10 @@ export class SandboxManager {
     return this.bridge.getSocketPath();
   }
 
+  getProxyPort() {
+    return this.bridge.getProxyPort();
+  }
+
   /**
    * Creates shim scripts in the specified directory.
    */

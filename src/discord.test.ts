@@ -102,6 +102,7 @@ describe('DiscordClient', () => {
       guild: {
         channels: {
           create: mock(async () => mockChannel),
+          fetch: mock(async () => new Map()),
         },
       },
       deferReply: mock(async () => {}),
