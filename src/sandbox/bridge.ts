@@ -17,10 +17,12 @@ export class HostBridge {
   private proxyServer: http.Server | null = null;
   private socketPath: string;
   private proxySocketPath: string;
+  private workspacePath: string;
   private sandboxToken?: string;
   private hostKeys: Record<string, string> = {};
 
   constructor(workspacePath: string, sandboxToken?: string, apiKeys?: Record<string, string>) {
+    this.workspacePath = workspacePath;
     if (!existsSync(workspacePath)) {
       mkdirSync(workspacePath, { recursive: true });
     }
@@ -194,13 +196,23 @@ export class HostBridge {
       return;
     }
 
+    const commandPath = request.command;
+    const isolatedHome = join(this.workspacePath, '.isolated_home');
+    if (!existsSync(isolatedHome)) {
+      mkdirSync(isolatedHome, { recursive: true });
+    }
+
     try {
-      const proc = spawn([request.command, ...request.args], {
+      const proc = spawn([commandPath, ...request.args], {
         cwd: existsSync(request.cwd) ? request.cwd : process.cwd(),
         env: {
           ...process.env,
-          ...request.env,
+          HOME: isolatedHome,
+          GH_CONFIG_DIR: join(isolatedHome, '.config', 'gh'),
           GH_TOKEN: this.sandboxToken || '',
+          GITHUB_TOKEN: this.sandboxToken || '',
+          GITHUB_USER: '',
+          GH_USER: '',
         },
         stdout: 'pipe',
         stderr: 'pipe',

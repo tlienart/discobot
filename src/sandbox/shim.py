@@ -15,7 +15,6 @@ def main():
         "command": command,
         "args": args,
         "cwd": cwd,
-        "env": {"GH_TOKEN": os.environ.get("GH_TOKEN", "")},
     }
 
     try:

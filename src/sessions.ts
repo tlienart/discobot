@@ -376,6 +376,7 @@ export class SessionManager {
 
     // Ghost Auth
     const sandboxDataDir = join(sessionWorkspace, '.local', 'share', 'opencode');
+    if (!existsSync(sandboxDataDir)) mkdirSync(sandboxDataDir, { recursive: true });
     const ghostAuth = {
       google: { type: 'api', key: 'SANDBOX_MANAGED_GHOST_KEY_1234567890' },
       openai: { type: 'api', key: 'sk-sandbox-managed-ghost-key-1234567890' },
