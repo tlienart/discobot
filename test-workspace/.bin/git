@@ -1,0 +1,2 @@
+#!/bin/bash
+BRIDGE_SOCK="/Users/thibaut/Desktop/project-discobot/test-workspace/bridge.sock" SHIM_COMMAND="git" bun "/Users/thibaut/Desktop/project-discobot/src/sandbox/shim.ts" "$@"
