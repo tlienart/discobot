@@ -199,22 +199,17 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
     if (event.type === 'text') {
       const text = event.part?.text || event.text;
       if (text) {
-        console.log(`[Agent Output] ${text}`);
         this.emit('output', text);
       }
     } else if (event.type === 'step_start') {
-      console.log('[Agent] Event: step_start');
       this.emit('thinking', true);
     } else if (event.type === 'step_finish') {
       const reason = event.part?.reason;
-      console.log(`[Agent] Event: step_finish (${reason})`);
       this.emit('thinking', false);
       if (reason === 'stop') this.emit('idle');
     } else if (event.type === 'tool_use') {
       const toolName = event.part?.tool || event.tool;
       console.log(`[Agent] Tool Use: ${toolName}`);
-    } else {
-      console.log(`[Agent] Event: ${event.type}`);
     }
   }
 

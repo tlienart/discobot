@@ -1,3 +1,4 @@
+import { spawn } from 'bun';
 import { OpenCodeAgent, type OpenCodeEvent } from './opencode';
 import { MockProcess } from './mock';
 import {
@@ -13,6 +14,7 @@ import {
 import { type Agent } from './agent';
 import { SandboxManager } from './sandbox/manager';
 import { join } from 'path';
+import os from 'os';
 import { type Config } from './discord';
 
 const ANIMALS = [
@@ -290,6 +292,18 @@ export class SessionManager {
     });
   }
 
+  private getHostIp(): string {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+      for (const iface of interfaces[name] || []) {
+        if (iface.family === 'IPv4' && !iface.internal) {
+          return iface.address;
+        }
+      }
+    }
+    return '127.0.0.1';
+  }
+
   prepareSession(channelId: string, sessionId?: string): Agent {
     const sid = sessionId ? this.resolveSessionId(sessionId) : undefined;
     const binding = this.getBinding(channelId);
@@ -303,11 +317,12 @@ export class SessionManager {
     // Create necessary dirs
     const dotLocal = join(sessionWorkspace, '.local');
     const dotConfig = join(sessionWorkspace, '.config');
+    const dotCache = join(sessionWorkspace, '.cache');
     if (!existsSync(dotLocal)) mkdirSync(dotLocal, { recursive: true });
     if (!existsSync(dotConfig)) mkdirSync(dotConfig, { recursive: true });
+    if (!existsSync(dotCache)) mkdirSync(dotCache, { recursive: true });
 
     // Generate port for Sandbox Local Bridge
-    // Use a wider range and ensure uniqueness
     const sandboxLocalPort = Math.floor(Math.random() * 5000) + 10000;
 
     // Sync Config & PATCH it for local bridge
@@ -347,40 +362,44 @@ export class SessionManager {
     const bridgeSock = this.sandboxManager?.getSocketPath() || '';
     const proxySock = this.sandboxManager?.getProxySocketPath() || '';
 
-    // Create entrypoint.sh in workspace
+    // Create entrypoint.sh with trap for cleanup
     const entrypointPath = join(sessionWorkspace, 'entrypoint.sh');
     const entrypoint = `#!/bin/bash
 export HOME="${sessionWorkspace}"
 export XDG_CONFIG_HOME="${sessionWorkspace}/.config"
+export XDG_DATA_HOME="${sessionWorkspace}/.local/share"
+export XDG_CACHE_HOME="${sessionWorkspace}/.cache"
+export XDG_STATE_HOME="${sessionWorkspace}/.local/state"
 export BRIDGE_SOCK="${bridgeSock}"
 export PROXY_SOCK="${proxySock}"
 export PATH="${this.workspacePath}/.bin:$PATH"
 
-# Start HTTP-to-Unix Bridge (inside sandbox) to punch through to host proxy
+# Cleanup function
+cleanup() {
+    [ ! -z "$BRIDGE_PID" ] && kill $BRIDGE_PID 2>/dev/null
+}
+trap cleanup EXIT
+
+# Start HTTP-to-Unix Bridge (inside sandbox)
+# Read final port from output
 python3 "${this.workspacePath}/.bin/http_to_unix.py" ${sandboxLocalPort} > "${sessionWorkspace}/bridge.log" 2>&1 &
 BRIDGE_PID=$!
 
-# Verify write access
-touch "${sessionWorkspace}/.local/write_test" || echo "[Entrypoint] ERROR: Cannot write to .local"
-touch "${sessionWorkspace}/.config/write_test" || echo "[Entrypoint] ERROR: Cannot write to .config"
-
-# Wait for bridge to be ready
-for i in {1..10}; do
-    if lsof -Pi :${sandboxLocalPort} -sTCP:LISTEN -t >/dev/null; then
+# Wait for bridge and discover real port if it shifted
+ACTUAL_PORT=${sandboxLocalPort}
+for i in {1..20}; do
+    if grep -q "PORT:" "${sessionWorkspace}/bridge.log"; then
+        ACTUAL_PORT=$(grep "PORT:" "${sessionWorkspace}/bridge.log" | cut -d: -f2)
         break
     fi
     sleep 0.2
 done
 
-export GOOGLE_GENERATIVE_AI_API_BASE="http://127.0.0.1:${sandboxLocalPort}/google"
-export GOOGLE_GENERATIVE_AI_BASE_URL="http://127.0.0.1:${sandboxLocalPort}/google"
-export OPENAI_BASE_URL="http://127.0.0.1:${sandboxLocalPort}/openai/v1"
-export ANTHROPIC_BASE_URL="http://127.0.0.1:${sandboxLocalPort}/anthropic"
+export GOOGLE_GENERATIVE_AI_BASE_URL="http://127.0.0.1:$ACTUAL_PORT/google"
+export OPENAI_BASE_URL="http://127.0.0.1:$ACTUAL_PORT/openai/v1"
+export ANTHROPIC_BASE_URL="http://127.0.0.1:$ACTUAL_PORT/anthropic"
 
 exec "$@"
-RET=$?
-kill $BRIDGE_PID 2>/dev/null
-exit $RET
 `;
     writeFileSync(entrypointPath, entrypoint);
     chmodSync(entrypointPath, 0o755);
