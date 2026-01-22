@@ -16,7 +16,7 @@ const mockConfig: Config = {
   sandbox: {
     enabled: false,
     workspaceDir: './workspace-test',
-    ghToken: 'test-gh-token',
+    sandboxGhToken: 'test-gh-token',
     opencodeConfigPath: './opencode.json',
   },
 };

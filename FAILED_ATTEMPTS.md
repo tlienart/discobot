@@ -55,3 +55,9 @@ This document tracks approaches that were tried and failed, to avoid circular de
 - **Attempt**: Forwarding headers like `Transfer-Encoding` or `Host` verbatim.
 - **Failure**: Caused `400 Bad Request` or `chunked-encoding` errors from LLM providers.
 - **Status**: Solved by explicitly filtering sensitive headers and re-constructing the request on the host.
+
+## 11. Brittle .env Parsing
+
+- **Attempt**: Using `.env` for all configuration.
+- **Failure**: On some macOS environments, Bun's native loader or the `dotenv` package misread the file (e.g., swallowing the entire file into a single variable), leading to `401 Unauthorized` errors even with valid tokens.
+- **Status**: Replaced with a strictly structured `config.json`.
