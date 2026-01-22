@@ -14,11 +14,10 @@ workspace*
 *.sock
 *.port
 
-# Ignore all JSON data files, but keep project config
+# Ignore all JSON data files, but keep project metadata
 *.json
 !package.json
 !tsconfig.json
-!config.json
 
 # Exclude internal planning and documentation
 TASKS_*.md
