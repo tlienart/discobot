@@ -26,7 +26,7 @@ const mockConfig: Config = {
   sandbox: {
     enabled: false,
     workspaceDir: './workspace-test',
-    ghToken: 'test-gh-token',
+    sandboxGhToken: 'test-gh-token',
     opencodeConfigPath: './opencode.json',
   },
 };
@@ -160,7 +160,7 @@ describe('Integration: Full Flow', () => {
 
     expect(mockProcess.start).toHaveBeenCalledWith(expect.stringContaining('Hello agent!'));
     expect(mockProcess.start).toHaveBeenCalledWith(
-      expect.stringContaining('IMPORTANT: Your response will be displayed on Discord'),
+      expect.stringContaining('Be concise and stay under 1800 chars'),
     );
     expect(mockMessage.react).toHaveBeenCalledWith('📥');
   });
