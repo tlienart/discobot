@@ -26,7 +26,7 @@ export interface Config {
   sandbox: {
     enabled: boolean;
     workspaceDir: string;
-    ghToken: string;
+    sandboxGhToken: string;
     opencodeConfigPath: string;
   };
   gcp?: {

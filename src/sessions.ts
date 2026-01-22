@@ -167,7 +167,7 @@ export class SessionManager {
       console.log('[Manager] Sandbox enabled. Initializing SandboxManager...');
       this.sandboxManager = new SandboxManager(
         this.workspacePath,
-        config.sandbox.ghToken,
+        config.sandbox.sandboxGhToken,
         config.apiKeys,
       );
       this.sandboxManager.start();

@@ -34,9 +34,10 @@ Create a `config.json` file in the root of this project:
   "sandbox": {
     "enabled": true,
     "workspaceDir": "/Users/Shared/discobot-workspace",
-    "ghToken": "your_dedicated_sandbox_pat",
+    "sandboxGhToken": "your_dedicated_sandbox_pat",
     "opencodeConfigPath": "/Users/yourname/.config/opencode/opencode.json"
   },
+
   "apiKeys": {
     "google": "your_gemini_key",
     "openai": "your_openai_key"

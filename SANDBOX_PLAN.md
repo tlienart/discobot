@@ -72,7 +72,7 @@ To keep secrets safe:
 ### D. Secure CLI Tooling (Shims)
 
 - Tools like `gh` and `git` are shimmed. When the agent runs `gh auth status`, it's running a Python script that forwards the command to the host bridge.
-- The host bridge executes the real command with the `SANDBOX_GH_TOKEN` and returns the output.
+- The host bridge executes the real command with the `sandboxGhToken` (provided in `config.json`) and returns the output. It explicitly removes any fallback to host environment tokens to ensure total identity isolation.
 
 ### E. Cleanup & Reliability
 

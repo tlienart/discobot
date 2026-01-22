@@ -200,7 +200,7 @@ export class HostBridge {
         env: {
           ...process.env,
           ...request.env,
-          GH_TOKEN: this.sandboxToken || process.env.SANDBOX_GH_TOKEN || process.env.GH_TOKEN,
+          GH_TOKEN: this.sandboxToken || '',
         },
         stdout: 'pipe',
         stderr: 'pipe',
