@@ -15,12 +15,9 @@ import {
   ComponentType,
 } from 'discord.js';
 import { readFileSync, existsSync } from 'fs';
-import dotenv from 'dotenv';
 import { SessionManager } from './sessions';
 import { type OpenCodeEvent } from './opencode';
 import { type Agent } from './agent';
-
-dotenv.config();
 
 export class DiscordClient {
   private client: Client;
