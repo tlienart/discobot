@@ -1,4 +1,12 @@
-import { writeFileSync, chmodSync, mkdirSync, existsSync, readFileSync } from 'fs';
+import {
+  writeFileSync,
+  chmodSync,
+  mkdirSync,
+  existsSync,
+  readFileSync,
+  statSync,
+  readdirSync,
+} from 'fs';
 import { join } from 'path';
 import { HostBridge } from './bridge';
 
@@ -23,6 +31,24 @@ export class SandboxManager {
     return this.bridge.getSocketPath();
   }
 
+  getProxySocketPath() {
+    return this.bridge.getProxySocketPath();
+  }
+
+  private chmodRecursive(path: string, mode: number) {
+    if (!existsSync(path)) return;
+    try {
+      chmodSync(path, mode);
+      if (statSync(path).isDirectory()) {
+        for (const item of readdirSync(path)) {
+          this.chmodRecursive(join(path, item), mode);
+        }
+      }
+    } catch (error) {
+      console.warn(`[Sandbox] Failed to chmod ${path}:`, error);
+    }
+  }
+
   /**
    * Creates shim scripts in the specified directory.
    */
@@ -36,9 +62,20 @@ export class SandboxManager {
     const shimDestPath = join(targetBinDir, 'shim.py');
 
     // Copy shim.py to target bin dir
-    const shimContent = readFileSync(shimSourcePath);
-    writeFileSync(shimDestPath, shimContent);
-    chmodSync(shimDestPath, 0o755);
+    if (existsSync(shimSourcePath)) {
+      const shimContent = readFileSync(shimSourcePath);
+      writeFileSync(shimDestPath, shimContent);
+      chmodSync(shimDestPath, 0o755);
+    }
+
+    // Copy http_to_unix.py to target bin dir
+    const bridgeSourcePath = join(__dirname, 'http_to_unix.py');
+    const bridgeDestPath = join(targetBinDir, 'http_to_unix.py');
+    if (existsSync(bridgeSourcePath)) {
+      const bridgeContent = readFileSync(bridgeSourcePath);
+      writeFileSync(bridgeDestPath, bridgeContent);
+      chmodSync(bridgeDestPath, 0o755);
+    }
 
     for (const tool of tools) {
       const shimPath = join(targetBinDir, tool);
@@ -47,7 +84,8 @@ BRIDGE_SOCK="${this.getSocketPath()}" SHIM_COMMAND="${tool}" /usr/bin/python3 "$
 `;
       writeFileSync(shimPath, content);
       chmodSync(shimPath, 0o755);
-      console.log(`[Sandbox] Created shim for ${tool} at ${shimPath}`);
     }
+
+    this.chmodRecursive(targetBinDir, 0o777);
   }
 }

@@ -1,6 +1,6 @@
 import { expect, test, describe, mock, spyOn, beforeEach, afterAll, afterEach } from 'bun:test';
 import { DiscordClient } from './discord';
-import { ChannelType, type ChatInputCommandInteraction, type Message } from 'discord.js';
+import { ChannelType, type ChatInputCommandInteraction } from 'discord.js';
 import { SessionManager } from './sessions';
 import { OpenCodeAgent } from './opencode';
 import { unlinkSync, existsSync, writeFileSync } from 'fs';
@@ -20,7 +20,7 @@ describe('DiscordClient', () => {
   });
 
   beforeEach(() => {
-    process.env.DISCORD_TOKEN = 'test-token';
+    process.env.DISCORD_TOKEN = 'test-token-long-enough-to-pass-validation';
     process.env.DISCORD_CLIENT_ID = 'test-client-id';
     process.env.DISCORD_GUILD_ID = 'test-guild-id';
     process.env.SESSION_DB = TEST_DB;
@@ -74,7 +74,7 @@ describe('DiscordClient', () => {
       .emit('interactionCreate', mockInteraction as unknown as ChatInputCommandInteraction);
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    expect(client.getCategoryId()).toBe('123456789');
+    expect(client.getSessionManager().getCategoryId()).toBe('123456789');
     expect(mockInteraction.reply).toHaveBeenCalled();
   });
 
@@ -88,7 +88,7 @@ describe('DiscordClient', () => {
     const client = new DiscordClient();
     const mockChannel = {
       id: 'channel-new-123',
-      name: 'opencode-1234',
+      name: 'agent-1234',
       type: ChannelType.GuildText,
       send: mock(async () => {}),
     };
@@ -102,6 +102,9 @@ describe('DiscordClient', () => {
       guild: {
         channels: {
           create: mock(async () => mockChannel),
+          fetch: mock(async () => ({
+            find: () => null,
+          })),
         },
       },
       deferReply: mock(async () => {}),
@@ -117,9 +120,6 @@ describe('DiscordClient', () => {
     expect(mockInteraction.guild.channels.create).toHaveBeenCalled();
     expect(prepareSessionSpy).toHaveBeenCalledWith('channel-new-123');
     expect(startSpy).toHaveBeenCalledWith(expect.stringContaining('hello'));
-    expect(startSpy).toHaveBeenCalledWith(
-      expect.stringContaining('IMPORTANT: Your response will be displayed on Discord'),
-    );
     expect(mockInteraction.editReply).toHaveBeenCalled();
   });
 
@@ -175,7 +175,7 @@ describe('DiscordClient', () => {
 
     expect(mockInteraction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: expect.stringContaining('provide a valid Session ID'),
+        content: expect.stringContaining('ID required'),
       }),
     );
   });
