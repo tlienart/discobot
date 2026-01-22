@@ -77,8 +77,7 @@ describe('DiscordClient', () => {
     const prepareSessionSpy = spyOn(SessionManager.prototype, 'prepareSession').mockReturnValue(
       new OpenCodeAgent('test-session'),
     );
-    const startSpy = spyOn(OpenCodeAgent.prototype, 'start').mockImplementation(async () => {});
-    spies.push(prepareSessionSpy, startSpy);
+    spies.push(prepareSessionSpy);
 
     const client = new DiscordClient(mockConfig);
     const mockChannel = {
@@ -92,7 +91,7 @@ describe('DiscordClient', () => {
       isChatInputCommand: () => true,
       commandName: 'new',
       options: {
-        getString: () => 'hello',
+        getString: () => 'my-project',
       },
       guild: {
         channels: {
@@ -110,12 +109,11 @@ describe('DiscordClient', () => {
     client
       .getClient()
       .emit('interactionCreate', mockInteraction as unknown as ChatInputCommandInteraction);
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(mockInteraction.deferReply).toHaveBeenCalled();
     expect(mockInteraction.guild.channels.create).toHaveBeenCalled();
     expect(prepareSessionSpy).toHaveBeenCalledWith('channel-new-123');
-    expect(startSpy).toHaveBeenCalled();
     expect(mockInteraction.editReply).toHaveBeenCalled();
   });
 });

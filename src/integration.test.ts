@@ -99,7 +99,6 @@ describe('Integration: Full Flow', () => {
     );
     spies.push(prepareSpy);
 
-    client = new DiscordClient(mockConfig);
     client.getSessionManager().setCategoryId('987654321');
   });
 
@@ -120,13 +119,14 @@ describe('Integration: Full Flow', () => {
       commandName: 'new',
       options: {
         getString: (name: string) => {
-          if (name === 'prompt') return 'Start test session';
+          if (name === 'name') return 'test-session';
           return null;
         },
       },
       guild: mockGuild,
       deferReply: mock(async () => {}),
       editReply: mock(async () => {}),
+      reply: mock(async () => {}),
       channelId: 'cmd-integration-channel',
     };
 
@@ -135,35 +135,13 @@ describe('Integration: Full Flow', () => {
       mockInteraction as unknown as ChatInputCommandInteraction,
     );
 
-    // Robust wait for start call
-    for (let i = 0; i < 250 && mockProcess.start.mock.calls.length === 0; i++) {
-      await new Promise((r) => setTimeout(r, 20));
-    }
+    await new Promise((r) => setTimeout(r, 50));
 
     expect(mockInteraction.deferReply).toHaveBeenCalled();
     expect(mockGuild.channels.create).toHaveBeenCalled();
     expect(mockInteraction.editReply).toHaveBeenCalled();
-    expect(mockProcess.start).toHaveBeenCalledWith(expect.stringContaining('Start test session'));
-    expect(mockProcess.start).toHaveBeenCalledWith(
-      expect.stringContaining('IMPORTANT: Your response will be displayed on Discord'),
-    );
 
-    // 2. Simulate opencode output
-    mockProcess.emit('output', 'Hello from OpenCode!');
-
-    // Robust wait for send call
-    for (let i = 0; i < 200 && mockChannel.send.mock.calls.length < 2; i++) {
-      await new Promise((r) => setTimeout(r, 20));
-    }
-
-    expect(mockChannel.send).toHaveBeenCalledWith('Hello from OpenCode!');
-    expect(mockChannel.send).toHaveBeenCalledWith('**User:** Start test session');
-
-    // 3. Simulate thinking status
-    mockProcess.emit('thinking', true);
-    expect(mockChannel.sendTyping).toHaveBeenCalled();
-
-    // 4. Simulate user input in Discord
+    // Now simulate user sending a message in the newly created channel
     const mockMessage = {
       author: { bot: false },
       channelId: 'channel-integration-123',
@@ -175,8 +153,8 @@ describe('Integration: Full Flow', () => {
     // @ts-expect-error - mock message emission
     discordClient.emit('messageCreate', mockMessage as Message);
 
-    // Robust wait for second start call
-    for (let i = 0; i < 250 && mockProcess.start.mock.calls.length < 2; i++) {
+    // Robust wait for start call
+    for (let i = 0; i < 250 && mockProcess.start.mock.calls.length < 1; i++) {
       await new Promise((r) => setTimeout(r, 20));
     }
 

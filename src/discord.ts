@@ -48,6 +48,7 @@ export class DiscordClient {
   private heartbeatTimers: Map<string, Timer> = new Map();
   private thinkingMessages: Map<string, Message> = new Map();
   private thinkingStartTimes: Map<string, number> = new Map();
+  private summarizingChannels: Set<string> = new Set();
   private lastToolUsed: Map<string, string> = new Map();
   private cleanupTimers: Map<string, Timer> = new Map();
 
@@ -154,8 +155,21 @@ export class DiscordClient {
         }
 
         case 'new': {
-          const prompt = options.getString('prompt') || 'Hello!';
+          const name = options.getString('name');
+          if (!name) {
+            await interaction.reply({
+              content: '❌ Name required.',
+              flags: [MessageFlags.Ephemeral],
+            });
+            return;
+          }
+
+          const sanitized = name
+            .toLowerCase()
+            .replace(/[^a-z0-9-]/g, '-')
+            .substring(0, 100);
           await interaction.deferReply();
+
           try {
             let parentId = this.sessionManager.getCategoryId();
 
@@ -166,11 +180,19 @@ export class DiscordClient {
 
             if (guild) {
               const channels = await guild.channels.fetch();
-              const existingCategory = parentId ? channels.get(parentId) : null;
 
-              if (!existingCategory || existingCategory.type !== ChannelType.GuildCategory) {
+              const existing = channels.find(
+                (c) => c?.name === sanitized && c?.type === ChannelType.GuildText,
+              );
+              if (existing) {
+                await interaction.editReply(`❌ Error: Channel \`#${sanitized}\` already exists.`);
+                return;
+              }
+
+              let category = parentId ? channels.get(parentId) : null;
+              if (!category || category.type !== ChannelType.GuildCategory) {
                 // @ts-expect-error - Collection.find
-                const category = channels.find(
+                category = channels.find(
                   (c) =>
                     c?.type === ChannelType.GuildCategory &&
                     c.name.toLowerCase().includes('opencode'),
@@ -179,34 +201,52 @@ export class DiscordClient {
                   parentId = category.id;
                   this.sessionManager.setCategoryId(parentId);
                 } else {
-                  const newCategory = await guild.channels.create({
+                  category = await guild.channels.create({
                     name: 'OpenCode Sessions',
                     type: ChannelType.GuildCategory,
                   });
-                  this.sessionManager.setCategoryId(newCategory.id);
-                  parentId = newCategory.id;
+                  this.sessionManager.setCategoryId(category.id);
+                  parentId = category.id;
                 }
               }
             }
+
             const channel = await guild?.channels.create({
-              name: `agent-${Date.now().toString().slice(-4)}`,
+              name: sanitized,
               type: ChannelType.GuildText,
               parent: parentId || undefined,
             });
+
             if (channel) {
+              this.sessionManager.bindChannelToFolder(channel.id, sanitized);
               const session = this.sessionManager.prepareSession(channel.id);
               this.attachSessionListeners(session, channel as TextChannel);
               await interaction.editReply(`Created session in ${channel}`);
-              await (channel as TextChannel).send(`**User:** ${prompt}`);
-              this.channelBusy.add(channel.id);
-              session
-                .start(getDiscordPrompt(prompt))
-                .finally(() => this.channelBusy.delete(channel.id));
             }
           } catch (error) {
             console.error(error);
             await interaction.editReply('Failed to create channel.');
           }
+          break;
+        }
+
+        case 'attach': {
+          await interaction.deferReply();
+          try {
+            const channel = await guild?.channels.fetch(channelId);
+            if (channel && channel.type === ChannelType.GuildText) {
+              const sanitized = channel.name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+              this.sessionManager.bindChannelToFolder(channel.id, sanitized);
+              const session = this.sessionManager.prepareSession(channel.id);
+              this.attachSessionListeners(session, channel as TextChannel);
+              await interaction.editReply(
+                `✅ Attached OpenCode session to \`#${channel.name}\` (Workspace: \`${sanitized}\`)`,
+              );
+            }
+          } catch {
+            await interaction.editReply('❌ Failed to attach session.');
+          }
+
           break;
         }
 
@@ -367,6 +407,13 @@ export class DiscordClient {
 
     session.on('thinking', async (isThinking: boolean) => {
       if (isThinking) {
+        // Cancel any pending cleanup
+        const pendingCleanup = this.cleanupTimers.get(channel.id);
+        if (pendingCleanup) {
+          clearTimeout(pendingCleanup);
+          this.cleanupTimers.delete(channel.id);
+        }
+
         if (!this.typingIntervals.has(channel.id)) {
           channel.sendTyping().catch(() => {});
           const interval = setInterval(() => channel.sendTyping().catch(() => {}), 5000);
@@ -396,7 +443,9 @@ export class DiscordClient {
           this.heartbeatTimers.set(channel.id, heartbeat);
         }
       } else {
-        await cleanupThinking();
+        // Debounce cleanup
+        const timer = setTimeout(cleanupThinking, 2000);
+        this.cleanupTimers.set(channel.id, timer);
       }
     });
 
@@ -427,7 +476,10 @@ export class DiscordClient {
       new SlashCommandBuilder()
         .setName('new')
         .setDescription('New session')
-        .addStringOption((o) => o.setName('prompt').setDescription('Prompt')),
+        .addStringOption((o) => o.setName('name').setDescription('Channel Name').setRequired(true)),
+      new SlashCommandBuilder()
+        .setName('attach')
+        .setDescription('Attach OpenCode session to current channel'),
       new SlashCommandBuilder().setName('interrupt').setDescription('Kill process'),
       new SlashCommandBuilder().setName('peek-log').setDescription('Show logs'),
       new SlashCommandBuilder().setName('restart').setDescription('Restart session'),

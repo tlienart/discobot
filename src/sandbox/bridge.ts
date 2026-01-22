@@ -3,6 +3,7 @@ import { spawn } from 'bun';
 import { existsSync, unlinkSync, mkdirSync, chmodSync, readFileSync } from 'fs';
 import { join } from 'path';
 import http from 'http';
+import https from 'https';
 
 export interface BridgeRequest {
   command: string;
@@ -133,17 +134,34 @@ export class HostBridge {
           const finalUrl = new URL(`https://${targetHost}${finalPath}`);
           if (isGoogle) finalUrl.searchParams.set('key', authValue);
 
-          const headers = new Headers(req.headers);
-          headers.delete('host');
-          if (authHeader) headers.set(authHeader, authValue);
+          const proxyReq = https.request(
+            {
+              hostname: targetHost,
+              port: 443,
+              path: finalUrl.pathname + finalUrl.search,
+              method: req.method,
+              headers: {
+                ...req.headers,
+                host: targetHost,
+                [authHeader.toLowerCase()]: authValue,
+              },
+            },
+            (proxyRes) => {
+              res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
+              proxyRes.pipe(res);
+            },
+          );
 
-          return await fetch(finalUrl.toString(), {
-            method: req.method,
-            headers: headers,
-            body: req.body,
-            // @ts-expect-error - duplex
-            duplex: 'half',
+          proxyReq.on('error', (e) => {
+            console.error(`[Proxy] Upstream error: ${e.message}`);
+            res.writeHead(502);
+            res.end('Proxy Error');
           });
+
+          req.pipe(proxyReq);
+        } else {
+          res.writeHead(404);
+          res.end('Not Found');
         }
       } catch (error) {
         console.error('[Proxy] Internal error:', error);

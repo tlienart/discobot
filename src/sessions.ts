@@ -314,7 +314,6 @@ export class SessionManager {
     if (this.sessionToPort.has(sessionId)) {
       return this.sessionToPort.get(sessionId)!;
     }
-    // Find a free-looking port in the 10000-15000 range
     const port = Math.floor(Math.random() * 5000) + 10000;
     this.sessionToPort.set(sessionId, port);
     this.savePersistence();
@@ -331,22 +330,33 @@ export class SessionManager {
       mkdirSync(sessionWorkspace, { recursive: true });
     }
 
-    // Create necessary dirs
-    const dotLocal = join(sessionWorkspace, '.local');
-    const dotConfig = join(sessionWorkspace, '.config');
+    // Proactively create full nested path for opencode storage
+    // This fixes "NotFoundError" and migration errors
+    const storagePath = join(
+      sessionWorkspace,
+      '.local',
+      'share',
+      'opencode',
+      'storage',
+      'session',
+      'global',
+    );
+    if (!existsSync(storagePath)) {
+      mkdirSync(storagePath, { recursive: true });
+    }
+
+    // Ensure common dirs exist
+    const dotConfig = join(sessionWorkspace, '.config', 'opencode');
     const dotCache = join(sessionWorkspace, '.cache');
-    if (!existsSync(dotLocal)) mkdirSync(dotLocal, { recursive: true });
     if (!existsSync(dotConfig)) mkdirSync(dotConfig, { recursive: true });
     if (!existsSync(dotCache)) mkdirSync(dotCache, { recursive: true });
 
-    // Generate/Retrieve stable port for this session
     const sandboxLocalPort = this.getSessionPort(sid || folderName);
 
     // Sync Config & PATCH it for local bridge
     const hostConfigPath = this.config.sandbox.opencodeConfigPath;
     if (hostConfigPath && existsSync(hostConfigPath)) {
       const sandboxConfigDir = join(sessionWorkspace, '.config', 'opencode');
-      if (!existsSync(sandboxConfigDir)) mkdirSync(sandboxConfigDir, { recursive: true });
       try {
         const configText = readFileSync(hostConfigPath, 'utf-8');
         const config = JSON.parse(configText);
@@ -366,11 +376,10 @@ export class SessionManager {
 
     // Ghost Auth
     const sandboxDataDir = join(sessionWorkspace, '.local', 'share', 'opencode');
-    if (!existsSync(sandboxDataDir)) mkdirSync(sandboxDataDir, { recursive: true });
     const ghostAuth = {
       google: { type: 'api', key: 'SANDBOX_MANAGED_GHOST_KEY_1234567890' },
       openai: { type: 'api', key: 'sk-sandbox-managed-ghost-key-1234567890' },
-      anthropic: { type: 'api', key: 'sk-ant-sid-sandbox-managed-ghost-key' },
+      anthropic: { type: 'api', key: 'x-sandbox-managed-ghost-key-1234567890' },
     };
     writeFileSync(join(sandboxDataDir, 'auth.json'), JSON.stringify(ghostAuth, null, 2));
 
@@ -379,7 +388,6 @@ export class SessionManager {
     const bridgeSock = this.sandboxManager?.getSocketPath() || '';
     const proxySock = this.sandboxManager?.getProxySocketPath() || '';
 
-    // Create entrypoint.sh with trap for cleanup and session settling
     const entrypointPath = join(sessionWorkspace, 'entrypoint.sh');
     const entrypoint = `#!/bin/bash
 export HOME="${sessionWorkspace}"
@@ -391,7 +399,6 @@ export BRIDGE_SOCK="${bridgeSock}"
 export PROXY_SOCK="${proxySock}"
 export PATH="${this.workspacePath}/.bin:$PATH"
 
-# Ensure cleanup on exit
 cleanup() {
     [ ! -z "$BRIDGE_PID" ] && kill $BRIDGE_PID 2>/dev/null
 }
