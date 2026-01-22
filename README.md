@@ -19,7 +19,34 @@ The **Discord-OpenCode Bridge** allows you to control and monitor multiple `open
 - **Alcless:** Required for sandboxing on macOS.
 - **Make:** Most systems have this by default.
 
-### 2. Configuration
+### 2. Sandbox Setup (macOS only)
+
+We use [alcless](https://github.com/AkihiroSuda/alcless) for secure, lightweight isolation. It was created by [Akihiro Suda](https://github.com/AkihiroSuda), the lead developer of [Lima](https://github.com/lima-vm/lima) (the engine behind Docker Desktop alternative on Mac) and a prominent figure in the macOS container ecosystem.
+
+1.  **Install `alcless`**:
+    Follow the installation guide on the [alcless repository](https://github.com/AkihiroSuda/alcless) to get the `alclessctl` tool.
+
+2.  **Initialize the Sandbox**:
+    Run the following command:
+
+    ```bash
+    alclessctl create default
+    ```
+
+    - **First Prompt**: Enter **your own macOS user password** (to allow `alcless` to set up the new user).
+    - **Second Prompt**: When asked for the `alcless` user password, **leave it blank and press Enter**.
+
+3.  **Install Dependencies in the Sandbox**:
+    Open a shell inside the sandbox:
+    ```bash
+    alclessctl shell --plain default bash
+    ```
+    Inside that shell, install the necessary CLI tools using `brew`:
+    ```bash
+    brew install gh opencode
+    ```
+
+### 3. Configuration
 
 Create a `config.json` file in the root of this project:
 
@@ -45,7 +72,7 @@ Create a `config.json` file in the root of this project:
 }
 ```
 
-### 3. Run the Bridge
+### 4. Run the Bridge
 
 ```bash
 make run
