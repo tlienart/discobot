@@ -100,15 +100,16 @@ export class DiscordClient {
     });
 
     const getDiscordPrompt = (userPrompt: string) => {
-      // Flatten prompt to single line and remove characters that trigger shell syntax errors
-      const flattened = userPrompt
+      // Aggressively sanitize: keep only safe chars, flatten to single line
+      const sanitized = userPrompt
         .replace(/\n/g, ' ')
         .replace(/\r/g, '')
-        .replace(/['"()[\]{}|&;$<>\\]/g, '');
+        .replace(/[^a-zA-Z0-9\s.,!?-]/g, '')
+        .trim();
 
       const instruction =
         'Be concise and stay under 1800 chars. You are in a secure sandbox. Always use relative paths within the workspace.';
-      return `${flattened} Instruction: ${instruction}`;
+      return `${sanitized} Instruction: ${instruction}`;
     };
 
     this.client.on(Events.InteractionCreate, async (interaction) => {
@@ -366,7 +367,6 @@ export class DiscordClient {
   }
 
   private attachSessionListeners(session: Agent, channel: TextChannel) {
-    let firstOutput = true;
     let sessionIdDiscovered = false;
 
     const cleanupThinking = async (immediate = false) => {
@@ -425,8 +425,6 @@ export class DiscordClient {
     });
 
     session.on('output', async (text: string) => {
-      if (firstOutput) firstOutput = false;
-
       // Check for Discord character limit
       if (text.length > 1900 && !this.summarizingChannels.has(channel.id)) {
         this.summarizingChannels.add(channel.id);
@@ -438,7 +436,7 @@ export class DiscordClient {
         this.channelBusy.add(channel.id);
 
         const prompt =
-          'The previous output was too long. Please provide a concise summary under 1800 chars.';
+          'The previous output was too long and was suppressed. Please provide a very concise summary of what you did and the final result under 1800 chars.';
         fresh.start(prompt).finally(() => {
           this.channelBusy.delete(channel.id);
           this.summarizingChannels.delete(channel.id);
@@ -448,6 +446,7 @@ export class DiscordClient {
 
       await cleanupThinking();
       if (text.length > 1900) {
+        // Fallback for extreme cases or if already summarizing
         channel.send(text.substring(0, 1900) + '... (truncated)').catch(() => {});
       } else {
         channel.send(text).catch(() => {});

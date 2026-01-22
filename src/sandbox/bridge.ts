@@ -1,5 +1,4 @@
-import { listen, type Socket, type SocketListener } from 'bun';
-import { spawn } from 'bun';
+import { listen, spawn, type Socket, type SocketListener } from 'bun';
 import { existsSync, unlinkSync, mkdirSync, chmodSync, readFileSync } from 'fs';
 import { join } from 'path';
 import http from 'http';

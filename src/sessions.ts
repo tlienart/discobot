@@ -314,7 +314,15 @@ export class SessionManager {
     if (this.sessionToPort.has(sessionId)) {
       return this.sessionToPort.get(sessionId)!;
     }
-    const port = Math.floor(Math.random() * 5000) + 10000;
+
+    // Derive stable port from sessionId string hash
+    let hash = 0;
+    for (let i = 0; i < sessionId.length; i++) {
+      hash = (hash << 5) - hash + sessionId.charCodeAt(i);
+      hash |= 0; // Convert to 32bit integer
+    }
+    const port = 10000 + (Math.abs(hash) % 5000);
+
     this.sessionToPort.set(sessionId, port);
     this.savePersistence();
     return port;
