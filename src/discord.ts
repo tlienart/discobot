@@ -37,7 +37,6 @@ export class DiscordClient {
     this.clientId = (process.env.DISCORD_CLIENT_ID || '').trim().replace(/^"|"$/g, '');
     this.guildId = (process.env.DISCORD_GUILD_ID || '').trim().replace(/^"|"$/g, '');
 
-    // Diagnostic logging for token (safe version)
     if (this.token) {
       console.log(
         `[Discord] Token loaded. Length: ${this.token.length}, Prefix: ${this.token.substring(0, 4)}...`,
@@ -72,9 +71,13 @@ export class DiscordClient {
     };
 
     this.client.on(Events.InteractionCreate, async (interaction) => {
+      console.log(
+        `[Discord] Interaction received: ${interaction.isChatInputCommand() ? 'Slash Command' : 'Other'}`,
+      );
       if (!interaction.isChatInputCommand()) return;
 
       const { commandName, options, channelId, guild } = interaction;
+      console.log(`[Discord] Command: ${commandName}`);
 
       switch (commandName) {
         case 'ping':
@@ -109,10 +112,12 @@ export class DiscordClient {
           }
           try {
             const sanitized = this.sessionManager.bindChannelToFolder(channelId, folder);
-            await interaction.reply({ content: `✅ Bound to workspace folder: \`${sanitized}\`` });
-          } catch (e) {
             await interaction.reply({
-              content: `❌ Error: ${e instanceof Error ? e.message : String(e)}`,
+              content: `✅ Bound to workspace folder: \`${sanitized}\``,
+            });
+          } catch (error) {
+            await interaction.reply({
+              content: `❌ Error: ${error instanceof Error ? error.message : String(error)}`,
               flags: [MessageFlags.Ephemeral],
             });
           }
@@ -126,20 +131,22 @@ export class DiscordClient {
             let parentId = this.sessionManager.getCategoryId();
             if (!parentId && guild) {
               const channels = await guild.channels.fetch();
-              // @ts-expect-error - fetch() returns a Collection which has find
-              let category = channels.find(
+              // @ts-expect-error - fetch() returns a Collection
+              const category = channels.find(
                 (c) =>
                   c?.type === ChannelType.GuildCategory &&
                   c.name.toLowerCase().includes('opencode'),
               );
-              if (!category) {
-                category = await guild.channels.create({
+              if (category) {
+                parentId = category.id;
+              } else {
+                const newCategory = await guild.channels.create({
                   name: 'OpenCode Sessions',
                   type: ChannelType.GuildCategory,
                 });
-                this.sessionManager.setCategoryId(category.id);
+                this.sessionManager.setCategoryId(newCategory.id);
+                parentId = newCategory.id;
               }
-              parentId = category.id;
             }
             const channel = await guild?.channels.create({
               name: `agent-${Date.now().toString().slice(-4)}`,
@@ -156,8 +163,8 @@ export class DiscordClient {
                 .start(getDiscordPrompt(prompt))
                 .finally(() => this.channelBusy.delete(channel.id));
             }
-          } catch (e) {
-            console.error(e);
+          } catch (error) {
+            console.error(error);
             await interaction.editReply('Failed to create channel.');
           }
           break;
@@ -235,7 +242,8 @@ export class DiscordClient {
             await interaction.editReply(`Resumed \`${sessionId}\`.`);
             this.channelBusy.add(channelId);
             session.start().finally(() => this.channelBusy.delete(channelId));
-          } catch (e) {
+          } catch (error) {
+            console.error(error);
             await interaction.editReply('Failed.');
           }
           break;
@@ -263,7 +271,8 @@ export class DiscordClient {
           fresh
             .start(getDiscordPrompt(message.content))
             .finally(() => this.channelBusy.delete(message.channelId));
-        } catch (e) {
+        } catch (error) {
+          console.error(error);
           await message.react('❌');
         }
       }
@@ -369,8 +378,8 @@ export class DiscordClient {
         body: commands,
       });
       console.log('Reloaded (/) commands.');
-    } catch (e) {
-      console.error(e);
+    } catch (error) {
+      console.error(error);
     }
   }
 
@@ -392,7 +401,7 @@ export class DiscordClient {
           this.sessionManager.prepareSession(channelId, sessionId);
           await (channel as TextChannel).send(`🔄 **Ready.**`);
         }
-      } catch (e) {
+      } catch {
         /* ignore */
       }
     }

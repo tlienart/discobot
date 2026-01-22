@@ -74,8 +74,9 @@ describe('DiscordClient', () => {
       .emit('interactionCreate', mockInteraction as unknown as ChatInputCommandInteraction);
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    expect(client.getSessionManager().getCategoryId()).toBe('123456789');
     expect(mockInteraction.reply).toHaveBeenCalled();
+    // Wait a bit more for the async setCategoryId (which is synchronous but let's be safe)
+    expect(client.getSessionManager().getCategoryId()).toBe('123456789');
   });
 
   test('should handle /new command', async () => {

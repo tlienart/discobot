@@ -189,7 +189,7 @@ export class SessionManager {
           this.chmodRecursive(join(path, item), mode);
         }
       }
-    } catch (error) {
+    } catch {
       // Ignore
     }
   }
@@ -220,8 +220,8 @@ export class SessionManager {
         if (data.aliases) this.aliasToSession = new Map(Object.entries(data.aliases));
         if (data.bindings) this.channelToBinding = new Map(Object.entries(data.bindings));
         this.categoryId = data.categoryId || null;
-      } catch (error) {
-        console.error('Failed to load persistence:', error);
+      } catch {
+        console.error('Failed to load persistence:');
       }
     }
   }
@@ -323,7 +323,7 @@ export class SessionManager {
           config.provider[p].options.baseURL = `http://127.0.0.1:${sandboxLocalPort}${path}`;
         }
         writeFileSync(join(sandboxConfigDir, 'opencode.json'), JSON.stringify(config, null, 2));
-      } catch (error) {
+      } catch {
         copyFileSync(hostConfigPath, join(sandboxConfigDir, 'opencode.json'));
       }
     }
