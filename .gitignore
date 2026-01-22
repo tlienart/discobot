@@ -4,22 +4,23 @@ node_modules/
 # Local environment files
 .env
 .env.example
+config.json
 
 # Runtime state and logs
 logs/
-sessions.json
-sessions.test.json
-config.json
+sessions*.json
+workspace*
+*.log
+*.sock
+*.port
 
 # Ignore all JSON data files, but keep project config
 *.json
 !package.json
 !tsconfig.json
+!config.json
 
 # Exclude internal planning and documentation
-# Keep major planning and experimentation docs
-!PLAN.md
-!EXPERIMENTATION.md
 TASKS_*.md
 DOC_DISCORD_SETUP.md
 DEBUG_PLAN.md
@@ -27,20 +28,20 @@ FUTURE_STEPS.md
 AGENTS.md
 TESTING_PROTOCOL.md
 
+# Keep major planning and experimentation docs
+!PLAN.md
+!SANDBOX_PLAN.md
+!FAILED_ATTEMPTS.md
+!README.md
+
 # Exclude diagnostic and temporary scripts
 capture.ts
 test-*.ts
 repro_stall.ts
+cleanup_junk.ts
+create_pr.ts
 !src/**/*.test.ts
 !index.test.ts
 
 # OS specific files
 .DS_Store
-
-# Sandbox workspace
-workspace/
-
-# Runtime artifacts
-*.sock
-*.port
-proxy.log
