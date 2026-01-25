@@ -54,7 +54,7 @@ This project aims to build a portable bridge between Discord and multiple `openc
   - [x] Fix JSON parser hang on tool outputs with braces.
 - [x] **Phase 9: Response Optimization & Interactivity**
   - [x] Implement Direct Stream architecture (Pipe-based).
-  - [x] Implement silent summarization loop for messages > 2000 chars.
+  - [x] Implement tiered message handling (Split up to 9,500 chars, then summarize).
   - [x] Enhance terminal logging for tool usage and context processing.
   - [x] Single updating 'Still thinking' message with elapsed time.
   - [x] Remove "Using tool..." UI noise (and fix regression in #9).
