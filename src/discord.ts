@@ -325,13 +325,54 @@ export class DiscordClient {
           }
           break;
         }
+
+        case 'mode': {
+          const mode = options.getString('type');
+          if (!mode) {
+            const current = this.sessionManager.getMode(channelId);
+            await interaction.reply({
+              content: `Current mode: **${current}**`,
+              flags: [MessageFlags.Ephemeral],
+            });
+            return;
+          }
+          this.sessionManager.setMode(channelId, mode);
+          await interaction.reply(`🔄 Mode set to **${mode}**`);
+          break;
+        }
       }
     });
 
     this.client.on(Events.MessageCreate, async (message: Message) => {
       if (message.author.bot) return;
+
+      // Handle shortcuts: !plan, !build, !mode <type>
+      const content = message.content.trim();
+      let targetMode: string | null = null;
+      let prompt: string | null = null;
+
+      if (content.startsWith('!plan')) {
+        targetMode = 'plan';
+        prompt = content.slice(5).trim();
+      } else if (content.startsWith('!build')) {
+        targetMode = 'build';
+        prompt = content.slice(6).trim();
+      } else if (content.startsWith('!mode')) {
+        const parts = content.split(' ');
+        if (parts.length >= 2) {
+          targetMode = parts[1] || null;
+          prompt = parts.slice(2).join(' ').trim();
+        }
+      }
+
+      if (targetMode) {
+        this.sessionManager.setMode(message.channelId, targetMode);
+        await message.reply(`🔄 Mode set to **${targetMode}**`).catch(() => {});
+        if (!prompt) return; // Only switch mode if no prompt follows
+      }
+
       const session = this.sessionManager.getSession(message.channelId);
-      if (session) {
+      if (session || targetMode) {
         if (this.channelBusy.has(message.channelId)) {
           await message.reply('⚠️ Busy...').catch(() => {});
           return;
@@ -339,13 +380,16 @@ export class DiscordClient {
         try {
           await message.react('📥');
           const sid = this.sessionManager.getChannelMapping().get(message.channelId);
+          const currentMode = this.sessionManager.getMode(message.channelId);
           if (message.channel instanceof TextChannel) {
-            await message.channel.send(`**User:** ${message.content}`);
+            await message.channel.send(`**User [${currentMode}]:** ${prompt || message.content}`);
           }
           const fresh = this.sessionManager.prepareSession(message.channelId, sid);
           this.attachSessionListeners(fresh, message.channel as TextChannel);
           this.channelBusy.add(message.channelId);
-          fresh.start(message.content).finally(() => this.channelBusy.delete(message.channelId));
+          fresh
+            .start(prompt || message.content)
+            .finally(() => this.channelBusy.delete(message.channelId));
         } catch {
           await message.react('❌');
         }
@@ -479,8 +523,9 @@ export class DiscordClient {
             const elapsed = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
             const isSummarizing = this.summarizingChannels.has(channel.id);
             const tool = this.lastToolUsed.get(channel.id);
+            const mode = this.sessionManager.getMode(channel.id);
 
-            let statusText = isSummarizing ? 'Summarizing' : 'Thinking';
+            let statusText = isSummarizing ? 'Summarizing' : `Thinking [${mode}]`;
             if (tool) statusText += ` (Using ${tool})`;
 
             let msg = this.thinkingMessages.get(channel.id);
@@ -545,6 +590,16 @@ export class DiscordClient {
         .setName('bind')
         .setDescription('Bind folder')
         .addStringOption((o) => o.setName('folder').setDescription('Folder').setRequired(true)),
+      new SlashCommandBuilder()
+        .setName('mode')
+        .setDescription('Switch or view agent mode')
+        .addStringOption((o) =>
+          o
+            .setName('type')
+            .setDescription('Mode (e.g., plan, build)')
+            .setRequired(false)
+            .addChoices({ name: 'plan', value: 'plan' }, { name: 'build', value: 'build' }),
+        ),
     ].map((c) => c.toJSON());
 
     const rest = new REST({ version: '10' }).setToken(this.config.discord.token);
@@ -576,8 +631,9 @@ export class DiscordClient {
         }
         const channel = await this.client.channels.fetch(channelId);
         if (channel && channel.type === ChannelType.GuildText) {
+          const mode = this.sessionManager.getMode(channelId);
           this.sessionManager.prepareSession(channelId, sessionId);
-          await (channel as TextChannel).send(`🔄 **Ready.**`);
+          await (channel as TextChannel).send(`🔄 **Ready [${mode}].**`);
         }
       } catch {
         /* ignore */

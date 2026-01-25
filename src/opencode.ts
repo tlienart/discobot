@@ -34,6 +34,7 @@ export interface OpenCodeAgentOptions {
   useSandbox?: boolean;
   sandboxBinDir?: string;
   entrypoint?: string;
+  mode?: string;
   env?: Record<string, string>;
 }
 
@@ -52,6 +53,7 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
   private useSandbox: boolean;
   private sandboxBinDir?: string;
   private entrypoint?: string;
+  private mode?: string;
   private extraEnv: Record<string, string>;
 
   constructor(
@@ -63,6 +65,7 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
     this.useSandbox = options.useSandbox || false;
     this.sandboxBinDir = options.sandboxBinDir;
     this.entrypoint = options.entrypoint;
+    this.mode = options.mode;
     this.extraEnv = options.env || {};
 
     if (!existsSync('logs')) mkdirSync('logs');
@@ -77,6 +80,10 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
 
     if (this.sessionId) {
       args.push('--session', this.sessionId);
+    }
+
+    if (this.mode) {
+      args.push('--agent', this.mode);
     }
 
     if (prompt) {

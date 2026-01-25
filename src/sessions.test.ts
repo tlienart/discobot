@@ -91,4 +91,16 @@ describe('SessionManager', () => {
     expect(sm2.getCurrentSessionCount('chan-1')).toBe(2);
     expect(sm2.getNextSessionCount('chan-1')).toBe(3);
   });
+
+  test('should persist and load modes', () => {
+    if (existsSync(TEST_DB)) unlinkSync(TEST_DB);
+    const sm1 = new SessionManager(mockConfig);
+    expect(sm1.getMode('chan-mode')).toBe('plan'); // default
+
+    sm1.setMode('chan-mode', 'build');
+    expect(sm1.getMode('chan-mode')).toBe('build');
+
+    const sm2 = new SessionManager(mockConfig);
+    expect(sm2.getMode('chan-mode')).toBe('build');
+  });
 });

@@ -1,6 +1,6 @@
 import { expect, test, describe, mock, spyOn, afterAll, afterEach } from 'bun:test';
 import { DiscordClient, type Config } from './discord';
-import { ChannelType, type ChatInputCommandInteraction } from 'discord.js';
+import { ChannelType, type ChatInputCommandInteraction, type Message } from 'discord.js';
 import { SessionManager } from './sessions';
 import { OpenCodeAgent } from './opencode';
 import { unlinkSync, existsSync, writeFileSync } from 'fs';
@@ -115,5 +115,36 @@ describe('DiscordClient', () => {
     expect(mockInteraction.guild.channels.create).toHaveBeenCalled();
     expect(prepareSessionSpy).toHaveBeenCalledWith('channel-new-123');
     expect(mockInteraction.editReply).toHaveBeenCalled();
+  });
+
+  test('should handle !mode shortcuts', async () => {
+    const client = new DiscordClient(mockConfig);
+    const mockMessage = {
+      author: { bot: false },
+      content: '!build create a file',
+      channelId: 'chan-1',
+      react: mock(async () => {}),
+      reply: mock(async () => {}),
+      channel: {
+        id: 'chan-1',
+        type: ChannelType.GuildText,
+        send: mock(async () => {}),
+      },
+    };
+
+    const prepareSessionSpy = spyOn(client.getSessionManager(), 'prepareSession').mockReturnValue(
+      new OpenCodeAgent('test-session'),
+    );
+    spies.push(prepareSessionSpy);
+
+    // @ts-expect-error - mock message emission
+    client.getClient().emit('messageCreate', mockMessage as Message);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(client.getSessionManager().getMode('chan-1')).toBe('build');
+    expect(mockMessage.reply).toHaveBeenCalledWith(
+      expect.stringContaining('Mode set to **build**'),
+    );
+    expect(prepareSessionSpy).toHaveBeenCalled();
   });
 });

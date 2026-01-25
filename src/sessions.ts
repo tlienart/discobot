@@ -137,6 +137,7 @@ export interface SessionData {
   aliases: Record<string, string>;
   bindings: Record<string, string>;
   sessionPorts: Record<string, number>;
+  modes: Record<string, string>;
 }
 
 export class SessionManager {
@@ -147,6 +148,7 @@ export class SessionManager {
   private aliasToSession: Map<string, string> = new Map();
   private channelToBinding: Map<string, string> = new Map();
   private sessionToPort: Map<string, number> = new Map();
+  private channelToMode: Map<string, string> = new Map();
   private categoryId: string | null = null;
   private readonly PERSISTENCE_FILE: string;
   private sandboxManager: SandboxManager | null = null;
@@ -203,6 +205,7 @@ export class SessionManager {
       aliases: Object.fromEntries(this.aliasToSession.entries()),
       bindings: Object.fromEntries(this.channelToBinding.entries()),
       sessionPorts: Object.fromEntries(this.sessionToPort.entries()),
+      modes: Object.fromEntries(this.channelToMode.entries()),
     };
     writeFileSync(this.PERSISTENCE_FILE, JSON.stringify(data, null, 2));
   }
@@ -224,6 +227,7 @@ export class SessionManager {
           this.sessionToPort = new Map(
             Object.entries(data.sessionPorts).map(([k, v]) => [k, Number(v)]),
           );
+        if (data.modes) this.channelToMode = new Map(Object.entries(data.modes));
         this.categoryId = data.categoryId || null;
       } catch {
         console.error('Failed to load persistence:');
@@ -243,6 +247,15 @@ export class SessionManager {
 
   getCategoryId(): string | null {
     return this.categoryId;
+  }
+
+  getMode(channelId: string): string {
+    return this.channelToMode.get(channelId) || 'plan';
+  }
+
+  setMode(channelId: string, mode: string) {
+    this.channelToMode.set(channelId, mode);
+    this.savePersistence();
   }
 
   bindChannelToFolder(channelId: string, folderName: string) {
@@ -436,6 +449,7 @@ exit $RET
       useSandbox: this.config.sandbox.enabled,
       sandboxBinDir: join(this.workspacePath, '.bin'),
       entrypoint: entrypointPath,
+      mode: this.getMode(channelId),
     });
 
     this.sessions.set(channelId, session);

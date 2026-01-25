@@ -70,6 +70,11 @@ This project aims to build a portable bridge between Discord and multiple `openc
   - [x] Implement Animal-based Human-Readable Session Names.
   - [x] Consolidate code into a single robust `OpenCodeAgent`.
 
+- [x] **Phase 10: Mode Management**
+  - [x] Implement persistent mode tracking in `SessionManager` (TASKS_031).
+  - [x] Add `/mode` slash command and `!mode` shortcuts.
+  - [x] Pass mode flags to `OpenCodeAgent` process.
+
 ## Setup Requirements (Preview)
 
 - **Discord Permissions**: `Manage Channels`, `Send Messages`, `Read Message History`, `Use Slash Commands`.

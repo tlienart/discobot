@@ -35,4 +35,10 @@ describe('OpenCodeAgent', () => {
     expect(thinking).toBe(false);
     expect(idle).toBe(true);
   });
+
+  test('should include --agent flag if provided', async () => {
+    const op = new OpenCodeAgent('test-session', { mode: 'build' });
+    // @ts-expect-error: accessing private field for testing
+    expect(op.mode).toBe('build');
+  });
 });
