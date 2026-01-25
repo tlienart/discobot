@@ -389,6 +389,22 @@ export class SessionManager {
           const path = p === 'google' ? '/google' : `/${p}`;
           config.provider[p].options.baseURL = `http://127.0.0.1:${sandboxLocalPort}${path}`;
         }
+
+        // Bridge Capability Patch: Override 1800 char restriction in agent prompts
+        const capabilityNote =
+          '\n\nNote: The Discord bridge now supports responses up to 9,500 characters (automatically split into multiple messages). You are no longer restricted to 1,800 characters. If you have data to show, you can show it directly without aggressive summarization.';
+        if (config.agent) {
+          for (const name of Object.keys(config.agent)) {
+            const agent = config.agent[name];
+            if (agent && typeof agent.prompt === 'string') {
+              // Only append if not already present
+              if (!agent.prompt.includes('no longer restricted to 1,800 characters')) {
+                agent.prompt += capabilityNote;
+              }
+            }
+          }
+        }
+
         writeFileSync(join(sandboxConfigDir, 'opencode.json'), JSON.stringify(config, null, 2));
       } catch {
         copyFileSync(hostConfigPath, join(sandboxConfigDir, 'opencode.json'));
