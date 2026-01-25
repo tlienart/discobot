@@ -53,6 +53,9 @@ export class DiscordClient {
   private cleanupTimers: Map<string, Timer> = new Map();
 
   private channelBusy: Set<string> = new Set();
+  private readonly CHUNK_SIZE = 1900;
+  private readonly MAX_CHUNKS = 5;
+  private readonly MAX_TOTAL_LENGTH = 9500; // 1900 * 5
 
   constructor(config?: Config) {
     if (config) {
@@ -98,19 +101,6 @@ export class DiscordClient {
     this.client.once(Events.ClientReady, (readyClient) => {
       console.log(`Ready! Logged in as ${readyClient.user.tag}`);
     });
-
-    const getDiscordPrompt = (userPrompt: string) => {
-      // Aggressively sanitize: keep only safe chars, flatten to single line
-      const sanitized = userPrompt
-        .replace(/\n/g, ' ')
-        .replace(/\r/g, '')
-        .replace(/[^a-zA-Z0-9\s.,!?-]/g, '')
-        .trim();
-
-      const instruction =
-        'Be concise and stay under 1800 chars. You are in a secure sandbox. Always use relative paths within the workspace.';
-      return `${sanitized} Instruction: ${instruction}`;
-    };
 
     this.client.on(Events.InteractionCreate, async (interaction) => {
       if (!interaction.isChatInputCommand()) return;
@@ -190,7 +180,7 @@ export class DiscordClient {
             if (guild) {
               const channels = await guild.channels.fetch();
 
-              // @ts-expect-error - Collection.find
+              // channel is a Collection
               const existing = channels.find(
                 (c) => c?.name === sanitized && c?.type === ChannelType.GuildText,
               );
@@ -201,7 +191,6 @@ export class DiscordClient {
 
               let category = parentId ? channels.get(parentId) : null;
               if (!category || category.type !== ChannelType.GuildCategory) {
-                // @ts-expect-error - Collection.find
                 category = channels.find(
                   (c) =>
                     c?.type === ChannelType.GuildCategory &&
@@ -356,14 +345,36 @@ export class DiscordClient {
           const fresh = this.sessionManager.prepareSession(message.channelId, sid);
           this.attachSessionListeners(fresh, message.channel as TextChannel);
           this.channelBusy.add(message.channelId);
-          fresh
-            .start(getDiscordPrompt(message.content))
-            .finally(() => this.channelBusy.delete(message.channelId));
+          fresh.start(message.content).finally(() => this.channelBusy.delete(message.channelId));
         } catch {
           await message.react('❌');
         }
       }
     });
+  }
+
+  private async sendSplitMessage(channel: TextChannel, text: string) {
+    if (text.length <= this.CHUNK_SIZE) {
+      await channel.send(text).catch(() => {});
+      return;
+    }
+
+    const chunks: string[] = [];
+    for (let i = 0; i < text.length; i += this.CHUNK_SIZE) {
+      chunks.push(text.substring(i, i + this.CHUNK_SIZE));
+    }
+
+    const total = Math.min(chunks.length, this.MAX_CHUNKS);
+    for (let i = 0; i < total; i++) {
+      const prefix = `[${i + 1}/${total}] `;
+      await channel.send(`${prefix}${chunks[i]}`).catch(() => {});
+    }
+
+    if (chunks.length > this.MAX_CHUNKS) {
+      await channel
+        .send(`... (truncated additional ${chunks.length - this.MAX_CHUNKS} parts)`)
+        .catch(() => {});
+    }
   }
 
   private attachSessionListeners(session: Agent, channel: TextChannel) {
@@ -425,8 +436,8 @@ export class DiscordClient {
     });
 
     session.on('output', async (text: string) => {
-      // Check for Discord character limit
-      if (text.length > 1900 && !this.summarizingChannels.has(channel.id)) {
+      // If output is over 9500 chars, trigger summarization loop (unless already summarizing)
+      if (text.length > this.MAX_TOTAL_LENGTH && !this.summarizingChannels.has(channel.id)) {
         this.summarizingChannels.add(channel.id);
         await cleanupThinking(true);
 
@@ -435,8 +446,7 @@ export class DiscordClient {
         this.attachSessionListeners(fresh, channel);
         this.channelBusy.add(channel.id);
 
-        const prompt =
-          'The previous output was too long and was suppressed. Please provide a very concise summary of what you did and the final result under 1800 chars.';
+        const prompt = `The previous output was too long and was suppressed. Please provide a summary of what you did and the final result under ${this.MAX_TOTAL_LENGTH} chars.`;
         fresh.start(prompt).finally(() => {
           this.channelBusy.delete(channel.id);
           this.summarizingChannels.delete(channel.id);
@@ -445,12 +455,7 @@ export class DiscordClient {
       }
 
       await cleanupThinking();
-      if (text.length > 1900) {
-        // Fallback for extreme cases or if already summarizing
-        channel.send(text.substring(0, 1900) + '... (truncated)').catch(() => {});
-      } else {
-        channel.send(text).catch(() => {});
-      }
+      await this.sendSplitMessage(channel, text);
     });
 
     session.on('thinking', async (isThinking: boolean) => {

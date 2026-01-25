@@ -8,6 +8,12 @@ export interface OpenCodeEvent {
   text?: string;
   sessionID?: string;
   tool?: string;
+  error?: {
+    message?: string;
+    data?: {
+      message?: string;
+    };
+  };
   part?: {
     type: string;
     text?: string;
@@ -17,6 +23,8 @@ export interface OpenCodeEvent {
     state?: {
       input?: unknown;
       output?: unknown;
+      status?: string;
+      error?: string;
     };
   };
 }

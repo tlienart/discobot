@@ -158,10 +158,7 @@ describe('Integration: Full Flow', () => {
       await new Promise((r) => setTimeout(r, 20));
     }
 
-    expect(mockProcess.start).toHaveBeenCalledWith(expect.stringContaining('Hello agent!'));
-    expect(mockProcess.start).toHaveBeenCalledWith(
-      expect.stringContaining('Be concise and stay under 1800 chars'),
-    );
+    expect(mockProcess.start).toHaveBeenCalledWith('Hello agent!');
     expect(mockMessage.react).toHaveBeenCalledWith('📥');
   });
 });
