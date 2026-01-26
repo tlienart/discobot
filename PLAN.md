@@ -74,6 +74,7 @@ This project aims to build a portable bridge between Discord and multiple `openc
   - [x] Implement persistent mode tracking in `SessionManager` (TASKS_031).
   - [x] Add `/mode` slash command and `!mode` shortcuts.
   - [x] Pass mode flags to `OpenCodeAgent` process.
+  - [x] Implement dynamic system prompt patching to override output restrictions.
 
 ## Setup Requirements (Preview)
 
