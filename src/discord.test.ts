@@ -3,6 +3,7 @@ import { DiscordClient, type Config } from './discord';
 import { ChannelType, type ChatInputCommandInteraction, type Message } from 'discord.js';
 import { SessionManager } from './sessions';
 import { OpenCodeAgent } from './opencode';
+import { MockProcess } from './mock';
 import { unlinkSync, existsSync, writeFileSync } from 'fs';
 
 const TEST_DB = 'sessions.test.json';
@@ -129,13 +130,17 @@ describe('DiscordClient', () => {
         id: 'chan-1',
         type: ChannelType.GuildText,
         send: mock(async () => {}),
+        sendTyping: mock(async () => {}),
       },
     };
 
+    const mockAgent = new MockProcess('test-session');
+    const startSpy = spyOn(mockAgent, 'start');
     const prepareSessionSpy = spyOn(client.getSessionManager(), 'prepareSession').mockReturnValue(
-      new OpenCodeAgent('test-session'),
+      mockAgent as unknown as OpenCodeAgent,
     );
     spies.push(prepareSessionSpy);
+    spies.push(startSpy);
 
     // @ts-expect-error - mock message emission
     client.getClient().emit('messageCreate', mockMessage as Message);
@@ -146,5 +151,6 @@ describe('DiscordClient', () => {
       expect.stringContaining('Mode set to **build**'),
     );
     expect(prepareSessionSpy).toHaveBeenCalled();
+    expect(startSpy).toHaveBeenCalled();
   });
 });
