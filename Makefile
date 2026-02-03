@@ -7,6 +7,15 @@ run: install-bun
 	@$(BUN) install
 	@$(BUN) index.ts
 
+doctor: install-bun
+	@$(BUN) scripts/doctor.ts
+
+doctor-full: install-bun
+	@$(BUN) scripts/doctor.ts --full
+
+terminal: install-bun
+	@$(BUN) scripts/terminal-bot.ts
+
 install-bun:
 	@if ! command -v $(BUN) >/dev/null 2>&1; then \
 		echo "Bun not found. Installing Bun..."; \

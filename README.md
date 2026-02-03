@@ -7,7 +7,7 @@ The **Discord-OpenCode Bridge** allows you to control and monitor multiple `open
 - **Remote Control:** Run `opencode` tasks from your phone, tablet, or another computer while you're away from your desk.
 - **Session Persistence:** Start a task at home and check its progress or provide input from anywhere.
 - **Multitasking:** Manage several independent agent sessions simultaneously, each in its own dedicated Discord channel.
-- **Sandboxed Security:** Runs in an isolated environment where secrets are hidden and host files are protected.
+- **Sandboxed Security:** Runs in an isolated environment where secrets are hidden and host files are protected using macOS native user accounts.
 
 ---
 
@@ -16,35 +16,25 @@ The **Discord-OpenCode Bridge** allows you to control and monitor multiple `open
 ### 1. Prerequisites
 
 - **OpenCode:** Ensure `opencode` is installed on your machine.
-- **Alcless:** Required for sandboxing on macOS.
+- **Sbx:** Required for sandboxing on macOS. Clone `tlienart/sbx` into the root folder.
 - **Make:** Most systems have this by default.
 
 ### 2. Sandbox Setup (macOS only)
 
-We use [alcless](https://github.com/AkihiroSuda/alcless) for secure, lightweight isolation. It was created by [Akihiro Suda](https://github.com/AkihiroSuda), the lead developer of [Lima](https://github.com/lima-vm/lima) (the engine behind Docker Desktop alternative on Mac) and a prominent figure in the macOS container ecosystem.
+The bridge uses `sbx` to manage isolated macOS user sessions.
 
-1.  **Install `alcless`**:
-    Follow the installation guide on the [alcless repository](https://github.com/AkihiroSuda/alcless) to get the `alclessctl` tool.
-
-2.  **Initialize the Sandbox**:
-    Run the following command:
+1.  **Clone Sbx**:
 
     ```bash
-    alclessctl create default
+    git clone https://github.com/tlienart/sbx.git sbx
+    cd sbx && bun install
     ```
 
-    - **First Prompt**: Enter **your own macOS user password** (to allow `alcless` to set up the new user).
-    - **Second Prompt**: When asked for the `alcless` user password, **leave it blank and press Enter**.
+2.  **Grant Permissions**:
+    Your terminal (or the process running the bridge) must have **Full Disk Access** granted in System Settings > Privacy & Security.
 
-3.  **Install Dependencies in the Sandbox**:
-    Open a shell inside the sandbox:
-    ```bash
-    alclessctl shell --plain default bash
-    ```
-    Inside that shell, install the necessary CLI tools using `brew`:
-    ```bash
-    brew install gh opencode
-    ```
+3.  **Warp Sudo**:
+    Run `sudo -v` before starting the bridge to ensure the sandbox creation doesn't hang waiting for a password.
 
 ### 3. Configuration
 
@@ -57,20 +47,16 @@ Create a `config.json` file in the root of this project:
     "clientId": "your_client_id",
     "guildId": "your_guild_id",
     "sessionDb": "sessions.json"
-  },
-  "sandbox": {
-    "enabled": true,
-    "workspaceDir": "/Users/Shared/discobot-workspace",
-    "sandboxGhToken": "your_dedicated_sandbox_pat",
-    "opencodeConfigPath": "/Users/yourname/.config/opencode/opencode.json"
-  },
-
-  "apiKeys": {
-    "google": "your_gemini_key",
-    "openai": "your_openai_key"
   }
 }
 ```
+
+Set your secrets in your environment (e.g. in your `.zshrc` or via export):
+
+- `SBX_GITHUB_TOKEN`: For GitHub authentication.
+- `SBX_GOOGLE_API_KEY`: For Gemini/Google LLMs.
+- `SBX_OPENAI_API_KEY`: For OpenAI LLMs.
+- `SBX_ANTHROPIC_API_KEY`: For Anthropic LLMs.
 
 ### 4. Run the Bridge
 
@@ -87,9 +73,9 @@ The bridge uses Discord Slash Commands for all interactions.
 ### 🛠️ Configuration & Setup
 
 - **`/setup [category]`**: Sets the Discord category where the bot will create new session channels.
-- **`/new [name]`**: Creates a new channel with the given name and starts an OpenCode session bound to a folder of the same name.
-- **`/attach`**: Attaches an OpenCode session to the current channel, using the channel name as the workspace alias.
-- **`/bind [folder]`**: Manually binds the current channel to a specific folder in the workspace.
+- **`/new [name]`**: Creates a new channel and starts an OpenCode session in a dedicated sandbox.
+- **`/attach`**: Attaches an OpenCode session to the current channel.
+- **`/mode [plan|build]`**: Switch between Planning and Building modes.
 
 ### 🎮 Session Control
 
@@ -98,9 +84,8 @@ The bridge uses Discord Slash Commands for all interactions.
 - **`/restart`**: Stops the current process, wipes conversation history, and starts fresh.
 - **`/peek-log`**: Displays the recent `stdout` and `stderr` for the current session.
 
-### 🔍 Utility & Debugging
+### 🔍 Utility
 
-- **`/debug`**: Shows the bot's status and active sessions.
-- **`/reset`**: Force-clears the "busy" lock for a channel.
 - **`/ping`**: Verifies the bot is online.
-- **`/test-bridge [message]`**: Starts a mock session to test communication.
+- **`!plan [prompt]`**: Shortcut to switch to plan mode and run a prompt.
+- **`!build [prompt]`**: Shortcut to switch to build mode and run a prompt.

@@ -1,529 +1,405 @@
-import { OpenCodeAgent, type OpenCodeEvent } from './opencode';
-import { MockProcess } from './mock';
-import {
-  writeFileSync,
-  readFileSync,
-  existsSync,
-  mkdirSync,
-  chmodSync,
-  copyFileSync,
-  statSync,
-  readdirSync,
-} from 'fs';
-import { type Agent } from './agent';
-import { SandboxManager } from './sandbox/manager';
-import { join } from 'path';
-import os from 'os';
-import { type Config } from './discord';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { spawnSync } from "bun";
+import type { Agent } from "./agent";
+import type { Config } from "./discord";
+import { MockProcess } from "./mock";
+import { OpenCodeAgent, type OpenCodeEvent } from "./opencode";
 
 const ANIMALS = [
-  'panda',
-  'zebra',
-  'koala',
-  'otter',
-  'tiger',
-  'lion',
-  'fox',
-  'wolf',
-  'bear',
-  'deer',
-  'eagle',
-  'hawk',
-  'owl',
-  'swan',
-  'duck',
-  'crane',
-  'frog',
-  'toad',
-  'newt',
-  'crab',
-  'whale',
-  'shark',
-  'seal',
-  'walrus',
-  'squid',
-  'orca',
-  'tuna',
-  'pike',
-  'bass',
-  'carp',
-  'cat',
-  'dog',
-  'horse',
-  'sheep',
-  'goat',
-  'cow',
-  'pig',
-  'rabbit',
-  'mouse',
-  'rat',
-  'bat',
-  'bee',
-  'ant',
-  'wasp',
-  'moth',
-  'worm',
-  'slug',
-  'snail',
-  'fly',
-  'gnat',
-  'hippo',
-  'rhino',
-  'parrot',
-  'gecko',
-  'falcon',
-  'badger',
-  'marmot',
-  'lynx',
-  'puma',
-  'jaguar',
-  'sloth',
-  'lemur',
-  'mole',
-  'shrew',
-  'vole',
-  'elk',
-  'moose',
-  'bison',
-  'camel',
-  'llama',
-  'albatross',
-  'puffin',
-  'pelican',
-  'heron',
-  'stork',
-  'raven',
-  'finch',
-  'robin',
-  'lark',
-  'swift',
-  'marlin',
-  'salmon',
-  'trout',
-  'eel',
-  'ray',
-  'shrimp',
-  'prawn',
-  'lobster',
-  'clam',
-  'oyster',
-  'beetle',
-  'spider',
-  'tick',
-  'mite',
-  'cicada',
-  'cricket',
-  'mantis',
-  'wasp',
-  'hornet',
-  'wasp',
-  'iguana',
-  'turtle',
-  'cobra',
-  'viper',
-  'python',
-  'adder',
-  'skink',
-  'cobra',
-  'anole',
-  'sidewinder',
+	"panda",
+	"zebra",
+	"koala",
+	"otter",
+	"tiger",
+	"lion",
+	"fox",
+	"wolf",
+	"bear",
+	"deer",
+	"eagle",
+	"hawk",
+	"owl",
+	"swan",
+	"duck",
+	"crane",
+	"frog",
+	"toad",
+	"newt",
+	"crab",
+	"whale",
+	"shark",
+	"seal",
+	"walrus",
+	"squid",
+	"orca",
+	"tuna",
+	"pike",
+	"bass",
+	"carp",
+	"cat",
+	"dog",
+	"horse",
+	"sheep",
+	"goat",
+	"cow",
+	"pig",
+	"rabbit",
+	"mouse",
+	"rat",
+	"bat",
+	"bee",
+	"ant",
+	"wasp",
+	"moth",
+	"worm",
+	"slug",
+	"snail",
+	"fly",
+	"gnat",
+	"hippo",
+	"rhino",
+	"parrot",
+	"gecko",
+	"falcon",
+	"badger",
+	"marmot",
+	"lynx",
+	"puma",
+	"jaguar",
+	"sloth",
+	"lemur",
+	"mole",
+	"shrew",
+	"vole",
+	"elk",
+	"moose",
+	"bison",
+	"camel",
+	"llama",
+	"albatross",
+	"puffin",
+	"pelican",
+	"heron",
+	"stork",
+	"raven",
+	"finch",
+	"robin",
+	"lark",
+	"swift",
+	"marlin",
+	"salmon",
+	"trout",
+	"eel",
+	"ray",
+	"shrimp",
+	"prawn",
+	"lobster",
+	"clam",
+	"oyster",
+	"beetle",
+	"spider",
+	"tick",
+	"mite",
+	"cicada",
+	"cricket",
+	"mantis",
+	"wasp",
+	"hornet",
+	"wasp",
+	"iguana",
+	"turtle",
+	"cobra",
+	"viper",
+	"python",
+	"adder",
+	"skink",
+	"cobra",
+	"anole",
+	"sidewinder",
 ];
 
 export interface SessionData {
-  channels: Record<string, string>;
-  categoryId: string | null;
-  types: Record<string, 'standard' | 'mock'>;
-  sessionCounts: Record<string, number>;
-  aliases: Record<string, string>;
-  bindings: Record<string, string>;
-  sessionPorts: Record<string, number>;
-  modes: Record<string, string>;
+	channels: Record<string, string>;
+	categoryId: string | null;
+	types: Record<string, "standard" | "mock">;
+	sessionCounts: Record<string, number>;
+	aliases: Record<string, string>;
+	bindings: Record<string, string>;
+	modes: Record<string, string>;
 }
 
 export class SessionManager {
-  private sessions: Map<string, Agent> = new Map();
-  private channelToSession: Map<string, string> = new Map();
-  private channelToType: Map<string, 'standard' | 'mock'> = new Map();
-  private channelToCount: Map<string, number> = new Map();
-  private aliasToSession: Map<string, string> = new Map();
-  private channelToBinding: Map<string, string> = new Map();
-  private sessionToPort: Map<string, number> = new Map();
-  private channelToMode: Map<string, string> = new Map();
-  private categoryId: string | null = null;
-  private readonly PERSISTENCE_FILE: string;
-  private sandboxManager: SandboxManager | null = null;
-  private readonly workspacePath: string;
-  private config: Config;
+	private sessions: Map<string, Agent> = new Map();
+	private channelToSession: Map<string, string> = new Map();
+	private channelToType: Map<string, "standard" | "mock"> = new Map();
+	private channelToCount: Map<string, number> = new Map();
+	private aliasToSession: Map<string, string> = new Map();
+	private channelToBinding: Map<string, string> = new Map();
+	private channelToMode: Map<string, string> = new Map();
+	private categoryId: string | null = null;
+	private readonly PERSISTENCE_FILE: string;
+	private readonly workspacePath: string;
+	private config: Config;
 
-  constructor(config: Config) {
-    this.config = config;
-    this.PERSISTENCE_FILE = config.discord.sessionDb || 'sessions.json';
-    this.workspacePath = config.sandbox.workspaceDir;
+	constructor(config: Config) {
+		this.config = config;
+		this.PERSISTENCE_FILE = config.discord.sessionDb || "sessions.json";
+		this.workspacePath =
+			config.sandbox?.workspaceDir || join(process.cwd(), "workspace");
 
-    if (!existsSync(this.workspacePath)) {
-      mkdirSync(this.workspacePath, { recursive: true });
-      chmodSync(this.workspacePath, 0o777);
-    }
+		if (!existsSync(this.workspacePath)) {
+			mkdirSync(this.workspacePath, { recursive: true });
+		}
 
-    if (config.sandbox.enabled) {
-      console.log('[Manager] Sandbox enabled. Initializing SandboxManager...');
-      this.sandboxManager = new SandboxManager(
-        this.workspacePath,
-        config.sandbox.sandboxGhToken,
-        config.apiKeys,
-      );
-      this.sandboxManager.start();
+		this.loadPersistence();
+	}
 
-      const sandboxBin = join(this.workspacePath, '.bin');
-      this.sandboxManager.setupShims(sandboxBin);
-      this.chmodRecursive(sandboxBin, 0o777);
-    }
+	private savePersistence() {
+		const data: SessionData = {
+			channels: Object.fromEntries(this.channelToSession.entries()),
+			categoryId: this.categoryId,
+			types: Object.fromEntries(this.channelToType.entries()),
+			sessionCounts: Object.fromEntries(this.channelToCount.entries()),
+			aliases: Object.fromEntries(this.aliasToSession.entries()),
+			bindings: Object.fromEntries(this.channelToBinding.entries()),
+			modes: Object.fromEntries(this.channelToMode.entries()),
+		};
+		writeFileSync(this.PERSISTENCE_FILE, JSON.stringify(data, null, 2));
+	}
 
-    this.loadPersistence();
-  }
+	private loadPersistence() {
+		if (existsSync(this.PERSISTENCE_FILE)) {
+			try {
+				const data = JSON.parse(readFileSync(this.PERSISTENCE_FILE, "utf-8"));
+				if (data.channels)
+					this.channelToSession = new Map(Object.entries(data.channels));
+				if (data.types)
+					this.channelToType = new Map(Object.entries(data.types));
+				if (data.sessionCounts) {
+					this.channelToCount = new Map(
+						Object.entries(data.sessionCounts).map(([k, v]) => [k, Number(v)]),
+					);
+				}
+				if (data.aliases)
+					this.aliasToSession = new Map(Object.entries(data.aliases));
+				if (data.bindings)
+					this.channelToBinding = new Map(Object.entries(data.bindings));
+				if (data.modes)
+					this.channelToMode = new Map(Object.entries(data.modes));
+				this.categoryId = data.categoryId || null;
+			} catch {
+				console.error("Failed to load persistence:");
+			}
+		}
+	}
 
-  private chmodRecursive(path: string, mode: number) {
-    if (!existsSync(path)) return;
-    try {
-      chmodSync(path, mode);
-      if (statSync(path).isDirectory()) {
-        for (const item of readdirSync(path)) {
-          this.chmodRecursive(join(path, item), mode);
-        }
-      }
-    } catch {
-      // Ignore
-    }
-  }
+	setCategoryId(id: string | null) {
+		if (id && !/^\d+$/.test(id)) {
+			console.warn(`[Manager] Ignoring invalid category ID: ${id}`);
+			this.categoryId = null;
+		} else {
+			this.categoryId = id;
+		}
+		this.savePersistence();
+	}
 
-  private savePersistence() {
-    const data: SessionData = {
-      channels: Object.fromEntries(this.channelToSession.entries()),
-      categoryId: this.categoryId,
-      types: Object.fromEntries(this.channelToType.entries()),
-      sessionCounts: Object.fromEntries(this.channelToCount.entries()),
-      aliases: Object.fromEntries(this.aliasToSession.entries()),
-      bindings: Object.fromEntries(this.channelToBinding.entries()),
-      sessionPorts: Object.fromEntries(this.sessionToPort.entries()),
-      modes: Object.fromEntries(this.channelToMode.entries()),
-    };
-    writeFileSync(this.PERSISTENCE_FILE, JSON.stringify(data, null, 2));
-  }
+	getCategoryId(): string | null {
+		return this.categoryId;
+	}
 
-  private loadPersistence() {
-    if (existsSync(this.PERSISTENCE_FILE)) {
-      try {
-        const data = JSON.parse(readFileSync(this.PERSISTENCE_FILE, 'utf-8'));
-        if (data.channels) this.channelToSession = new Map(Object.entries(data.channels));
-        if (data.types) this.channelToType = new Map(Object.entries(data.types));
-        if (data.sessionCounts) {
-          this.channelToCount = new Map(
-            Object.entries(data.sessionCounts).map(([k, v]) => [k, Number(v)]),
-          );
-        }
-        if (data.aliases) this.aliasToSession = new Map(Object.entries(data.aliases));
-        if (data.bindings) this.channelToBinding = new Map(Object.entries(data.bindings));
-        if (data.sessionPorts)
-          this.sessionToPort = new Map(
-            Object.entries(data.sessionPorts).map(([k, v]) => [k, Number(v)]),
-          );
-        if (data.modes) this.channelToMode = new Map(Object.entries(data.modes));
-        this.categoryId = data.categoryId || null;
-      } catch {
-        console.error('Failed to load persistence:');
-      }
-    }
-  }
+	getMode(channelId: string): string {
+		return this.channelToMode.get(channelId) || "plan";
+	}
 
-  setCategoryId(id: string | null) {
-    if (id && !/^\d+$/.test(id)) {
-      console.warn(`[Manager] Ignoring invalid category ID: ${id}`);
-      this.categoryId = null;
-    } else {
-      this.categoryId = id;
-    }
-    this.savePersistence();
-  }
+	setMode(channelId: string, mode: string) {
+		this.channelToMode.set(channelId, mode);
+		this.savePersistence();
+	}
 
-  getCategoryId(): string | null {
-    return this.categoryId;
-  }
+	bindChannelToFolder(channelId: string, folderName: string) {
+		const sanitized = folderName.replace(/[^a-zA-Z0-9._-]/g, "");
+		if (!sanitized) throw new Error("Invalid folder name");
+		this.channelToBinding.set(channelId, sanitized);
+		this.savePersistence();
+		return sanitized;
+	}
 
-  getMode(channelId: string): string {
-    return this.channelToMode.get(channelId) || 'plan';
-  }
+	getBinding(channelId: string) {
+		return this.channelToBinding.get(channelId);
+	}
 
-  setMode(channelId: string, mode: string) {
-    this.channelToMode.set(channelId, mode);
-    this.savePersistence();
-  }
+	generateBotSessionId(): string {
+		const unusedAnimals = ANIMALS.filter((a) => !this.aliasToSession.has(a));
+		const list = unusedAnimals.length > 0 ? unusedAnimals : ANIMALS;
+		return list[Math.floor(Math.random() * list.length)] || "agent";
+	}
 
-  bindChannelToFolder(channelId: string, folderName: string) {
-    const sanitized = folderName.replace(/[^a-zA-Z0-9._-]/g, '');
-    if (!sanitized) throw new Error('Invalid folder name');
-    this.channelToBinding.set(channelId, sanitized);
-    this.savePersistence();
-    return sanitized;
-  }
+	resolveSessionId(input: string): string {
+		if (this.aliasToSession.has(input)) return this.aliasToSession.get(input)!;
+		if (input.startsWith("ses_")) return input;
+		return `ses_${input}`;
+	}
 
-  getBinding(channelId: string) {
-    return this.channelToBinding.get(channelId);
-  }
+	setAlias(alias: string, sessionId: string) {
+		this.aliasToSession.set(alias, sessionId);
+		this.savePersistence();
+	}
 
-  generateBotSessionId(): string {
-    const unusedAnimals = ANIMALS.filter((a) => !this.aliasToSession.has(a));
-    const list = unusedAnimals.length > 0 ? unusedAnimals : ANIMALS;
-    return list[Math.floor(Math.random() * list.length)] || 'agent';
-  }
+	getAliasForSession(sessionId: string): string | undefined {
+		for (const [alias, sid] of this.aliasToSession.entries()) {
+			if (sid === sessionId) return alias;
+		}
+		return undefined;
+	}
 
-  resolveSessionId(input: string): string {
-    if (this.aliasToSession.has(input)) return this.aliasToSession.get(input)!;
-    if (input.startsWith('ses_')) return input;
-    return `ses_${input}`;
-  }
+	private attachIdListener(channelId: string, session: Agent) {
+		session.on("event", (event: OpenCodeEvent) => {
+			const sid = event.sessionID || event.part?.sessionID;
+			if (sid) {
+				const currentSid = this.channelToSession.get(channelId);
+				if (currentSid !== sid) {
+					this.channelToSession.set(channelId, sid);
+					if (!this.getAliasForSession(sid)) {
+						const alias = this.generateBotSessionId();
+						this.setAlias(alias, sid);
+					}
+					this.savePersistence();
+				}
+			}
+		});
+	}
 
-  setAlias(alias: string, sessionId: string) {
-    this.aliasToSession.set(alias, sessionId);
-    this.savePersistence();
-  }
+	private getSbxName(channelId: string): string {
+		return `chan-${channelId}`;
+	}
 
-  getAliasForSession(sessionId: string): string | undefined {
-    for (const [alias, sid] of this.aliasToSession.entries()) {
-      if (sid === sessionId) return alias;
-    }
-    return undefined;
-  }
+	private isSbxHealthy(sbxName: string): boolean {
+		const sbxBin = join(process.cwd(), "sbx", "bin", "sbx");
+		// Try to run a simple command to verify the sandbox is functional
+		const result = spawnSync([sbxBin, "exec", sbxName, "--", "whoami"]);
+		return result.exitCode === 0 && result.stdout.toString().includes(sbxName);
+	}
 
-  private attachIdListener(channelId: string, session: Agent) {
-    session.on('event', (event: OpenCodeEvent) => {
-      const sid = event.sessionID || event.part?.sessionID;
-      if (sid) {
-        const currentSid = this.channelToSession.get(channelId);
-        if (currentSid !== sid) {
-          this.channelToSession.set(channelId, sid);
-          if (!this.getAliasForSession(sid)) {
-            const alias = this.generateBotSessionId();
-            this.setAlias(alias, sid);
-          }
-          this.savePersistence();
-        }
-      }
-    });
-  }
+	private ensureSbx(sbxName: string, retry = true) {
+		if (this.isSbxHealthy(sbxName)) return;
 
-  private getHostIp(): string {
-    const interfaces = os.networkInterfaces();
-    for (const name of Object.keys(interfaces)) {
-      for (const iface of interfaces[name] || []) {
-        if (iface.family === 'IPv4' && !iface.internal) {
-          return iface.address;
-        }
-      }
-    }
-    return '127.0.0.1';
-  }
+		console.log(
+			`[Manager] Sandbox ${sbxName} missing or unhealthy. Provisioning...`,
+		);
+		const sbxBin = join(process.cwd(), "sbx", "bin", "sbx");
 
-  private getSessionPort(sessionId: string): number {
-    if (this.sessionToPort.has(sessionId)) {
-      return this.sessionToPort.get(sessionId)!;
-    }
+		// First, try to delete it just in case it exists but is broken
+		spawnSync([sbxBin, "delete", sbxName]);
 
-    // Derive stable port from sessionId string hash
-    let hash = 0;
-    for (let i = 0; i < sessionId.length; i++) {
-      hash = (hash << 5) - hash + sessionId.charCodeAt(i);
-      hash |= 0; // Convert to 32bit integer
-    }
-    const port = 10000 + (Math.abs(hash) % 5000);
+		const result = spawnSync([
+			sbxBin,
+			"create",
+			sbxName,
+			"--tools",
+			"gh,git,opencode",
+		]);
+		if (result.exitCode !== 0) {
+			console.error(
+				`[Manager] Failed to create sbx: ${result.stderr.toString()}`,
+			);
+			if (retry) {
+				console.log("[Manager] Retrying sandbox creation...");
+				this.ensureSbx(sbxName, false);
+				return;
+			}
+			throw new Error(`Failed to create sandbox ${sbxName}`);
+		}
+	}
 
-    this.sessionToPort.set(sessionId, port);
-    this.savePersistence();
-    return port;
-  }
+	prepareSession(channelId: string, sessionId?: string): Agent {
+		const sid = sessionId
+			? this.resolveSessionId(sessionId)
+			: this.channelToSession.get(channelId);
+		const sbxName = this.getSbxName(channelId);
+		const useSandbox = this.config.sandbox?.enabled ?? true;
 
-  prepareSession(channelId: string, sessionId?: string): Agent {
-    const sid = sessionId ? this.resolveSessionId(sessionId) : undefined;
-    const binding = this.getBinding(channelId);
-    const folderName = binding || sid || `temp_${Date.now()}`;
-    const sessionWorkspace = join(this.workspacePath, folderName);
+		if (useSandbox) {
+			this.ensureSbx(sbxName);
+		}
 
-    if (!existsSync(sessionWorkspace)) {
-      mkdirSync(sessionWorkspace, { recursive: true });
-    }
+		const session = new OpenCodeAgent(sid, {
+			workspacePath: this.workspacePath, // sbx handles its own home, but we can still pass this for reference if needed
+			useSandbox: useSandbox,
+			sbxName: sbxName,
+			mode: this.getMode(channelId),
+		});
 
-    // Proactively create full nested path for opencode storage
-    // This fixes "NotFoundError" and migration errors
-    const storagePath = join(
-      sessionWorkspace,
-      '.local',
-      'share',
-      'opencode',
-      'storage',
-      'session',
-      'global',
-    );
-    if (!existsSync(storagePath)) {
-      mkdirSync(storagePath, { recursive: true });
-    }
+		this.sessions.set(channelId, session);
+		if (sid) this.channelToSession.set(channelId, sid);
+		this.channelToType.set(channelId, "standard");
+		this.savePersistence();
+		this.attachIdListener(channelId, session);
+		return session;
+	}
 
-    // Ensure common dirs exist
-    const dotConfig = join(sessionWorkspace, '.config', 'opencode');
-    const dotCache = join(sessionWorkspace, '.cache');
-    if (!existsSync(dotConfig)) mkdirSync(dotConfig, { recursive: true });
-    if (!existsSync(dotCache)) mkdirSync(dotCache, { recursive: true });
+	prepareMockSession(channelId: string, sessionId?: string): Agent {
+		const sid = sessionId
+			? this.resolveSessionId(sessionId)
+			: `ses_${this.generateBotSessionId()}`;
+		const session = new MockProcess(sid);
+		this.sessions.set(channelId, session);
+		this.channelToSession.set(channelId, sid);
+		this.channelToType.set(channelId, "mock");
+		this.savePersistence();
+		return session;
+	}
 
-    const sandboxLocalPort = this.getSessionPort(sid || folderName);
+	getChannelMapping() {
+		return this.channelToSession;
+	}
+	getSession(channelId: string): Agent | undefined {
+		return this.sessions.get(channelId);
+	}
+	getSessionType(channelId: string) {
+		return this.channelToType.get(channelId);
+	}
+	getCurrentSessionCount(channelId: string): number {
+		return this.channelToCount.get(channelId) || 1;
+	}
+	getNextSessionCount(channelId: string): number {
+		const next = (this.channelToCount.get(channelId) || 0) + 1;
+		this.channelToCount.set(channelId, next);
+		this.savePersistence();
+		return next;
+	}
 
-    // Sync Config & PATCH it for local bridge
-    const hostConfigPath = this.config.sandbox.opencodeConfigPath;
-    if (hostConfigPath && existsSync(hostConfigPath)) {
-      const sandboxConfigDir = join(sessionWorkspace, '.config', 'opencode');
-      try {
-        const configText = readFileSync(hostConfigPath, 'utf-8');
-        const config = JSON.parse(configText);
-        if (!config.provider) config.provider = {};
-        const providers = ['google', 'openai', 'anthropic'];
-        for (const p of providers) {
-          if (!config.provider[p]) config.provider[p] = {};
-          if (!config.provider[p].options) config.provider[p].options = {};
-          const path = p === 'google' ? '/google' : `/${p}`;
-          config.provider[p].options.baseURL = `http://127.0.0.1:${sandboxLocalPort}${path}`;
-        }
+	removeSession(channelId: string, keepMapping = false) {
+		const session = this.sessions.get(channelId);
+		if (session) {
+			session.stop();
+			this.sessions.delete(channelId);
+		}
 
-        // Bridge Capability Patch: Override 1800 char restriction in agent prompts
-        const capabilityNote =
-          '\n\nNote: The Discord bridge now supports responses up to 9,500 characters (automatically split into multiple messages). You are no longer restricted to 1,800 characters. If you have data to show, you can show it directly without aggressive summarization.';
-        if (config.agent) {
-          for (const name of Object.keys(config.agent)) {
-            const agent = config.agent[name];
-            if (agent && typeof agent.prompt === 'string') {
-              // Only append if not already present
-              if (!agent.prompt.includes('no longer restricted to 1,800 characters')) {
-                agent.prompt += capabilityNote;
-              }
-            }
-          }
-        }
+		const useSandbox = this.config.sandbox?.enabled ?? true;
+		if (useSandbox && !keepMapping) {
+			const sbxName = this.getSbxName(channelId);
+			const sbxBin = join(process.cwd(), "sbx", "bin", "sbx");
+			const listResult = spawnSync([sbxBin, "list"]);
+			if (listResult.stdout.toString().includes(sbxName)) {
+				console.log(`[Manager] Deleting sbx sandbox: ${sbxName}`);
+				spawnSync([sbxBin, "delete", sbxName]);
+			}
+		}
 
-        writeFileSync(join(sandboxConfigDir, 'opencode.json'), JSON.stringify(config, null, 2));
-      } catch {
-        copyFileSync(hostConfigPath, join(sandboxConfigDir, 'opencode.json'));
-      }
-    }
+		if (!keepMapping && this.channelToSession.has(channelId)) {
+			this.channelToSession.delete(channelId);
+			this.channelToType.delete(channelId);
+			this.savePersistence();
+		}
+	}
 
-    // Ghost Auth
-    const sandboxDataDir = join(sessionWorkspace, '.local', 'share', 'opencode');
-    if (!existsSync(sandboxDataDir)) mkdirSync(sandboxDataDir, { recursive: true });
-    const ghostAuth = {
-      google: { type: 'api', key: 'SANDBOX_MANAGED_GHOST_KEY_1234567890' },
-      openai: { type: 'api', key: 'sk-sandbox-managed-ghost-key-1234567890' },
-      anthropic: { type: 'api', key: 'x-sandbox-managed-ghost-key-1234567890' },
-    };
-    writeFileSync(join(sandboxDataDir, 'auth.json'), JSON.stringify(ghostAuth, null, 2));
-
-    this.chmodRecursive(sessionWorkspace, 0o777);
-
-    const bridgeSock = this.sandboxManager?.getSocketPath() || '';
-    const proxySock = this.sandboxManager?.getProxySocketPath() || '';
-
-    const entrypointPath = join(sessionWorkspace, 'entrypoint.sh');
-    const entrypoint = `#!/bin/bash
-export HOME="${sessionWorkspace}"
-export XDG_CONFIG_HOME="${sessionWorkspace}/.config"
-export XDG_DATA_HOME="${sessionWorkspace}/.local/share"
-export XDG_CACHE_HOME="${sessionWorkspace}/.cache"
-export XDG_STATE_HOME="${sessionWorkspace}/.local/state"
-export BRIDGE_SOCK="${bridgeSock}"
-export PROXY_SOCK="${proxySock}"
-export PATH="${this.workspacePath}/.bin:$PATH"
-
-cleanup() {
-    [ ! -z "$BRIDGE_PID" ] && kill $BRIDGE_PID 2>/dev/null
-}
-trap cleanup EXIT
-
-# Proactive cleanup of any lingering bridges for this port
-pkill -f "http_to_unix.py ${sandboxLocalPort}" 2>/dev/null
-
-# Start HTTP-to-Unix Bridge
-python3 "${this.workspacePath}/.bin/http_to_unix.py" ${sandboxLocalPort} > "${sessionWorkspace}/bridge.log" 2>&1 &
-BRIDGE_PID=$!
-
-# Wait for bridge and settle SQLite (0.5s)
-sleep 0.5
-
-# Run Agent
-"$@"
-RET=$?
-exit $RET
-`;
-    writeFileSync(entrypointPath, entrypoint);
-    chmodSync(entrypointPath, 0o755);
-
-    const session = new OpenCodeAgent(sid, {
-      workspacePath: sessionWorkspace,
-      useSandbox: this.config.sandbox.enabled,
-      sandboxBinDir: join(this.workspacePath, '.bin'),
-      entrypoint: entrypointPath,
-      mode: this.getMode(channelId),
-    });
-
-    this.sessions.set(channelId, session);
-    if (sid) this.channelToSession.set(channelId, sid);
-    this.channelToType.set(channelId, 'standard');
-    this.savePersistence();
-    this.attachIdListener(channelId, session);
-    return session;
-  }
-
-  prepareMockSession(channelId: string, sessionId?: string): Agent {
-    const sid = sessionId ? this.resolveSessionId(sessionId) : `ses_${this.generateBotSessionId()}`;
-    const session = new MockProcess(sid);
-    this.sessions.set(channelId, session);
-    this.channelToSession.set(channelId, sid);
-    this.channelToType.set(channelId, 'mock');
-    this.savePersistence();
-    return session;
-  }
-
-  getChannelMapping() {
-    return this.channelToSession;
-  }
-  getSession(channelId: string): Agent | undefined {
-    return this.sessions.get(channelId);
-  }
-  getSessionType(channelId: string) {
-    return this.channelToType.get(channelId);
-  }
-  getCurrentSessionCount(channelId: string): number {
-    return this.channelToCount.get(channelId) || 1;
-  }
-  getNextSessionCount(channelId: string): number {
-    const next = (this.channelToCount.get(channelId) || 0) + 1;
-    this.channelToCount.set(channelId, next);
-    this.savePersistence();
-    return next;
-  }
-
-  removeSession(channelId: string, keepMapping = false) {
-    const session = this.sessions.get(channelId);
-    if (session) {
-      session.stop();
-      this.sessions.delete(channelId);
-    }
-    if (!keepMapping && this.channelToSession.has(channelId)) {
-      this.channelToSession.delete(channelId);
-      this.channelToType.delete(channelId);
-      this.savePersistence();
-    }
-  }
-
-  async stopAll() {
-    const stopPromises = [];
-    for (const session of this.sessions.values()) {
-      stopPromises.push(session.stop());
-    }
-    await Promise.all(stopPromises);
-    this.sessions.clear();
-  }
+	async stopAll() {
+		const stopPromises = [];
+		for (const session of this.sessions.values()) {
+			stopPromises.push(session.stop());
+		}
+		await Promise.all(stopPromises);
+		this.sessions.clear();
+	}
 }
