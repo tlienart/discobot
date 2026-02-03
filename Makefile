@@ -4,6 +4,7 @@
 BUN := $(shell which bun 2>/dev/null || echo $(HOME)/.bun/bin/bun)
 
 run: install-bun
+	@sudo -v
 	@$(BUN) install
 	@$(BUN) index.ts
 
@@ -14,6 +15,7 @@ doctor-full: install-bun
 	@$(BUN) scripts/doctor.ts --full
 
 terminal: install-bun
+	@sudo -v
 	@$(BUN) scripts/terminal-bot.ts
 
 install-bun:
