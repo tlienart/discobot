@@ -6,6 +6,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v1
-      - run: bun install
-      - run: bun run lint
-      - run: bun test
+
+      - name: Install & Check Root
+        run: |
+          bun install
+          bun run check
+
+      - name: Install & Check Sbx Engine
+        run: |
+          cd sbx
+          bun install
+          bun run check
+
+      - name: Run Tests
+        run: bun test

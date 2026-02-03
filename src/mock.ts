@@ -30,8 +30,9 @@ export class MockProcess extends EventEmitter {
 		this.emit("idle");
 	}
 
-	async stop() {
+	async stop(): Promise<number | undefined> {
 		console.log(`[Mock] Stopping session ${this.sessionId}`);
+		return 0;
 	}
 
 	getPid() {

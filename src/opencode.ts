@@ -235,9 +235,10 @@ export class OpenCodeAgent extends EventEmitter implements Agent {
 		console.warn("[Agent] Session is not interactive.");
 	}
 
-	async stop() {
+	async stop(): Promise<number | undefined> {
 		this.process?.kill();
 		this.stopHeartbeat();
+		return undefined;
 	}
 
 	getPid() {

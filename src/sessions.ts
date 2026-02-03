@@ -236,7 +236,8 @@ export class SessionManager {
 	}
 
 	resolveSessionId(input: string): string {
-		if (this.aliasToSession.has(input)) return this.aliasToSession.get(input)!;
+		const alias = this.aliasToSession.get(input);
+		if (alias) return alias;
 		if (input.startsWith("ses_")) return input;
 		return `ses_${input}`;
 	}

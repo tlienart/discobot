@@ -10,7 +10,7 @@ async function runTurn(
 	prompt: string,
 ): Promise<string> {
 	console.log(`\n[Turn] Prompt: "${prompt}"`);
-	const agent = manager.prepareSession(channelId) as any;
+	const agent = manager.prepareSession(channelId);
 	let fullOutput = "";
 
 	agent.on("output", (text: string) => {

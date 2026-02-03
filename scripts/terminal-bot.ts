@@ -49,9 +49,11 @@ async function main() {
 					);
 				}
 				// Support bridge-level error messages
-				if ((event as any).message && event.type === "error") {
+				if (event.type === "error" && "message" in event) {
 					console.error(
-						chalk.red(`❌ Bridge Error: ${(event as any).message}`),
+						chalk.red(
+							`❌ Bridge Error: ${String((event as { message?: string }).message)}`,
+						),
 					);
 				}
 			});

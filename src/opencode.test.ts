@@ -10,10 +10,18 @@ describe("OpenCodeAgent", () => {
 		let idle = false;
 		let eventData: OpenCodeEvent | null = null;
 
-		op.on("thinking", (val: boolean) => (thinking = val));
-		op.on("output", (val: string) => (output += val));
-		op.on("idle", () => (idle = true));
-		op.on("event", (e: OpenCodeEvent) => (eventData = e));
+		op.on("thinking", (val: boolean) => {
+			thinking = val;
+		});
+		op.on("output", (val: string) => {
+			output += val;
+		});
+		op.on("idle", () => {
+			idle = true;
+		});
+		op.on("event", (e: OpenCodeEvent) => {
+			eventData = e;
+		});
 
 		// Simulate chunks
 		// @ts-expect-error: accessing private method for testing
