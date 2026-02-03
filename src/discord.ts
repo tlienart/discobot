@@ -1,650 +1,723 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
-  Client,
-  Events,
-  GatewayIntentBits,
-  REST,
-  Routes,
-  SlashCommandBuilder,
-  TextChannel,
-  ChannelType,
-  type Message,
-  MessageFlags,
-} from 'discord.js';
-import { readFileSync, existsSync } from 'fs';
-import { SessionManager } from './sessions';
-import { type OpenCodeEvent } from './opencode';
-import { type Agent } from './agent';
-import { join } from 'path';
+	ChannelType,
+	Client,
+	Events,
+	GatewayIntentBits,
+	type Message,
+	MessageFlags,
+	REST,
+	Routes,
+	SlashCommandBuilder,
+	TextChannel,
+} from "discord.js";
+import type { Agent } from "./agent";
+import type { OpenCodeEvent } from "./opencode";
+import { SessionManager } from "./sessions";
 
 export interface Config {
-  discord: {
-    token: string;
-    clientId: string;
-    guildId: string;
-    sessionDb: string;
-  };
-  sandbox: {
-    enabled: boolean;
-    workspaceDir: string;
-    sandboxGhToken: string;
-    opencodeConfigPath: string;
-  };
-  gcp?: {
-    project: string;
-  };
-  apiKeys?: {
-    google?: string;
-    openai?: string;
-    anthropic?: string;
-  };
+	discord: {
+		token: string;
+		clientId: string;
+		guildId: string;
+		sessionDb: string;
+	};
+	sandbox?: {
+		enabled?: boolean;
+		workspaceDir?: string;
+		sandboxGhToken?: string;
+		opencodeConfigPath?: string;
+	};
+	gcp?: {
+		project: string;
+	};
+	apiKeys?: {
+		google?: string;
+		openai?: string;
+		anthropic?: string;
+	};
 }
 
 export class DiscordClient {
-  private client: Client;
-  private config: Config;
-  private sessionManager: SessionManager;
+	private client: Client;
+	private config: Config;
+	private sessionManager: SessionManager;
 
-  private typingIntervals: Map<string, Timer> = new Map();
-  private heartbeatTimers: Map<string, Timer> = new Map();
-  private thinkingMessages: Map<string, Message> = new Map();
-  private thinkingStartTimes: Map<string, number> = new Map();
-  private summarizingChannels: Set<string> = new Set();
-  private lastToolUsed: Map<string, string> = new Map();
-  private cleanupTimers: Map<string, Timer> = new Map();
+	private typingIntervals: Map<string, Timer> = new Map();
+	private heartbeatTimers: Map<string, Timer> = new Map();
+	private thinkingMessages: Map<string, Message> = new Map();
+	private thinkingStartTimes: Map<string, number> = new Map();
+	private summarizingChannels: Set<string> = new Set();
+	private lastToolUsed: Map<string, string> = new Map();
+	private cleanupTimers: Map<string, Timer> = new Map();
 
-  private channelBusy: Set<string> = new Set();
-  private readonly CHUNK_SIZE = 1900;
-  private readonly MAX_CHUNKS = 5;
-  private readonly MAX_TOTAL_LENGTH = 9500; // 1900 * 5
+	private channelBusy: Set<string> = new Set();
+	private readonly CHUNK_SIZE = 1900;
+	private readonly MAX_CHUNKS = 5;
+	private readonly MAX_TOTAL_LENGTH = 9500; // 1900 * 5
 
-  constructor(config?: Config) {
-    if (config) {
-      this.config = config;
-    } else {
-      const configPath = join(process.cwd(), 'config.json');
-      if (!existsSync(configPath)) {
-        throw new Error('Missing config.json file');
-      }
+	constructor(config?: Config) {
+		if (config) {
+			this.config = config;
+		} else {
+			const configPath = join(process.cwd(), "config.json");
+			if (!existsSync(configPath)) {
+				throw new Error("Missing config.json file");
+			}
 
-      try {
-        this.config = JSON.parse(readFileSync(configPath, 'utf-8'));
-      } catch (e) {
-        throw new Error(`Failed to parse config.json: ${String(e)}`);
-      }
-    }
+			try {
+				this.config = JSON.parse(readFileSync(configPath, "utf-8"));
+			} catch (e) {
+				throw new Error(`Failed to parse config.json: ${String(e)}`);
+			}
+		}
 
-    const { token, clientId, guildId } = this.config.discord;
+		const { token, clientId, guildId } = this.config.discord;
 
-    if (token) {
-      console.log(
-        `[Discord] Token loaded. Length: ${token.length}, Prefix: ${token.substring(0, 4)}...`,
-      );
-    }
+		if (token) {
+			console.log(
+				`[Discord] Token loaded. Length: ${token.length}, Prefix: ${token.substring(0, 4)}...`,
+			);
+		}
 
-    if (!token || !clientId || !guildId) {
-      throw new Error('Missing Discord credentials in config.json');
-    }
+		if (!token || !clientId || !guildId) {
+			throw new Error("Missing Discord credentials in config.json");
+		}
 
-    this.client = new Client({
-      intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent,
-      ],
-    });
+		this.client = new Client({
+			intents: [
+				GatewayIntentBits.Guilds,
+				GatewayIntentBits.GuildMessages,
+				GatewayIntentBits.MessageContent,
+			],
+		});
 
-    this.sessionManager = new SessionManager(this.config);
-    this.setupEvents();
-  }
+		this.sessionManager = new SessionManager(this.config);
+		this.setupEvents();
+	}
 
-  private setupEvents() {
-    this.client.once(Events.ClientReady, (readyClient) => {
-      console.log(`Ready! Logged in as ${readyClient.user.tag}`);
-    });
+	private setupEvents() {
+		this.client.once(Events.ClientReady, (readyClient) => {
+			console.log(`Ready! Logged in as ${readyClient.user.tag}`);
+		});
 
-    this.client.on(Events.InteractionCreate, async (interaction) => {
-      if (!interaction.isChatInputCommand()) return;
+		this.client.on(Events.ChannelDelete, async (channel) => {
+			if (channel.type === ChannelType.GuildText) {
+				console.log(
+					`[Discord] Channel deleted: ${channel.name} (${channel.id}). Cleaning up session...`,
+				);
+				this.sessionManager.removeSession(channel.id);
+			}
+		});
 
-      const { commandName, options, channelId, guild } = interaction;
+		this.client.on(Events.InteractionCreate, async (interaction) => {
+			if (!interaction.isChatInputCommand()) return;
 
-      switch (commandName) {
-        case 'ping':
-          await interaction.reply('Pong!');
-          break;
+			const { commandName, options, channelId, guild } = interaction;
 
-        case 'setup': {
-          const category = options.getChannel('category');
-          if (category && category.type === ChannelType.GuildCategory) {
-            this.sessionManager.setCategoryId(category.id);
-            await interaction.reply({
-              content: `Successfully set session category to: **${category.name}** (${category.id})`,
-              flags: [MessageFlags.Ephemeral],
-            });
-          } else {
-            await interaction.reply({
-              content: 'Please provide a valid category.',
-              flags: [MessageFlags.Ephemeral],
-            });
-          }
-          break;
-        }
+			switch (commandName) {
+				case "ping":
+					await interaction.reply("Pong!");
+					break;
 
-        case 'bind': {
-          const folder = options.getString('folder');
-          if (!folder) {
-            await interaction.reply({
-              content: '❌ Folder name required.',
-              flags: [MessageFlags.Ephemeral],
-            });
-            return;
-          }
-          try {
-            const sanitized = this.sessionManager.bindChannelToFolder(channelId, folder);
-            await interaction.reply({
-              content: `✅ Bound to workspace folder: \`${sanitized}\``,
-            });
-          } catch (error) {
-            const msg = error instanceof Error ? error.message : String(error);
-            await interaction.reply({
-              content: `❌ Error: ${msg}`,
-              flags: [MessageFlags.Ephemeral],
-            });
-          }
-          break;
-        }
+				case "setup": {
+					const category = options.getChannel("category");
+					if (category && category.type === ChannelType.GuildCategory) {
+						this.sessionManager.setCategoryId(category.id);
+						await interaction.reply({
+							content: `Successfully set session category to: **${category.name}** (${category.id})`,
+							flags: [MessageFlags.Ephemeral],
+						});
+					} else {
+						await interaction.reply({
+							content: "Please provide a valid category.",
+							flags: [MessageFlags.Ephemeral],
+						});
+					}
+					break;
+				}
 
-        case 'new': {
-          const name = options.getString('name');
-          if (!name) {
-            await interaction.reply({
-              content: '❌ Name required.',
-              flags: [MessageFlags.Ephemeral],
-            });
-            return;
-          }
+				case "bind": {
+					const folder = options.getString("folder");
+					if (!folder) {
+						await interaction.reply({
+							content: "❌ Folder name required.",
+							flags: [MessageFlags.Ephemeral],
+						});
+						return;
+					}
+					try {
+						const sanitized = this.sessionManager.bindChannelToFolder(
+							channelId,
+							folder,
+						);
+						await interaction.reply({
+							content: `✅ Bound to workspace folder: \`${sanitized}\``,
+						});
+					} catch (error) {
+						const msg = error instanceof Error ? error.message : String(error);
+						await interaction.reply({
+							content: `❌ Error: ${msg}`,
+							flags: [MessageFlags.Ephemeral],
+						});
+					}
+					break;
+				}
 
-          const sanitized = name
-            .toLowerCase()
-            .replace(/[^a-z0-9-]/g, '-')
-            .substring(0, 100);
-          await interaction.deferReply();
+				case "new": {
+					const name = options.getString("name");
+					if (!name) {
+						await interaction.reply({
+							content: "❌ Name required.",
+							flags: [MessageFlags.Ephemeral],
+						});
+						return;
+					}
 
-          try {
-            let parentId = this.sessionManager.getCategoryId();
+					const sanitized = name
+						.toLowerCase()
+						.replace(/[^a-z0-9-]/g, "-")
+						.substring(0, 100);
+					await interaction.deferReply();
 
-            if (parentId && !/^\d+$/.test(parentId)) {
-              this.sessionManager.setCategoryId(null);
-              parentId = null;
-            }
+					try {
+						let parentId = this.sessionManager.getCategoryId();
 
-            if (guild) {
-              const channels = await guild.channels.fetch();
+						if (parentId && !/^\d+$/.test(parentId)) {
+							this.sessionManager.setCategoryId(null);
+							parentId = null;
+						}
 
-              // channel is a Collection
-              const existing = channels.find(
-                (c) => c?.name === sanitized && c?.type === ChannelType.GuildText,
-              );
-              if (existing) {
-                await interaction.editReply(`❌ Error: Channel \`#${sanitized}\` already exists.`);
-                return;
-              }
+						if (guild) {
+							const channels = await guild.channels.fetch();
 
-              let category = parentId ? channels.get(parentId) : null;
-              if (!category || category.type !== ChannelType.GuildCategory) {
-                category = channels.find(
-                  (c) =>
-                    c?.type === ChannelType.GuildCategory &&
-                    c.name.toLowerCase().includes('opencode'),
-                );
-                if (category) {
-                  parentId = category.id;
-                  this.sessionManager.setCategoryId(parentId);
-                } else {
-                  category = await guild.channels.create({
-                    name: 'OpenCode Sessions',
-                    type: ChannelType.GuildCategory,
-                  });
-                  this.sessionManager.setCategoryId(category.id);
-                  parentId = category.id;
-                }
-              }
-            }
+							// channel is a Collection
+							const existing = channels.find(
+								(c) =>
+									c?.name === sanitized && c?.type === ChannelType.GuildText,
+							);
+							if (existing) {
+								await interaction.editReply(
+									`❌ Error: Channel \`#${sanitized}\` already exists.`,
+								);
+								return;
+							}
 
-            const channel = await guild?.channels.create({
-              name: sanitized,
-              type: ChannelType.GuildText,
-              parent: parentId || undefined,
-            });
+							let category = parentId ? channels.get(parentId) : null;
+							if (!category || category.type !== ChannelType.GuildCategory) {
+								category = channels.find(
+									(c) =>
+										c?.type === ChannelType.GuildCategory &&
+										c.name.toLowerCase().includes("opencode"),
+								);
+								if (category) {
+									parentId = category.id;
+									this.sessionManager.setCategoryId(parentId);
+								} else {
+									category = await guild.channels.create({
+										name: "OpenCode Sessions",
+										type: ChannelType.GuildCategory,
+									});
+									this.sessionManager.setCategoryId(category.id);
+									parentId = category.id;
+								}
+							}
+						}
 
-            if (channel) {
-              this.sessionManager.bindChannelToFolder(channel.id, sanitized);
-              const session = this.sessionManager.prepareSession(channel.id);
-              this.attachSessionListeners(session, channel as TextChannel);
-              await interaction.editReply(`Created session in ${channel}`);
-            }
-          } catch (error) {
-            console.error(error);
-            await interaction.editReply('Failed to create channel.');
-          }
-          break;
-        }
+						const channel = await guild?.channels.create({
+							name: sanitized,
+							type: ChannelType.GuildText,
+							parent: parentId || undefined,
+						});
 
-        case 'attach': {
-          await interaction.deferReply();
-          try {
-            const channel = await guild?.channels.fetch(channelId);
-            if (channel && channel.type === ChannelType.GuildText) {
-              const sanitized = channel.name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-              this.sessionManager.bindChannelToFolder(channel.id, sanitized);
-              const session = this.sessionManager.prepareSession(channel.id);
-              this.attachSessionListeners(session, channel as TextChannel);
-              await interaction.editReply(
-                `✅ Attached OpenCode session to \`#${channel.name}\` (Workspace: \`${sanitized}\`)`,
-              );
-            }
-          } catch {
-            await interaction.editReply('❌ Failed to attach session.');
-          }
-          break;
-        }
+						if (channel) {
+							this.sessionManager.bindChannelToFolder(channel.id, sanitized);
+							const session = this.sessionManager.prepareSession(channel.id);
+							this.attachSessionListeners(session, channel as TextChannel);
+							await interaction.editReply(`Created session in ${channel}`);
+						}
+					} catch (error) {
+						console.error(error);
+						await interaction.editReply("Failed to create channel.");
+					}
+					break;
+				}
 
-        case 'interrupt': {
-          const session = this.sessionManager.getSession(channelId);
-          if (session) {
-            this.sessionManager.removeSession(channelId, true);
-            this.channelBusy.delete(channelId);
-            await interaction.reply('Process killed.');
-          } else {
-            await interaction.reply({
-              content: 'No active session.',
-              flags: [MessageFlags.Ephemeral],
-            });
-          }
-          break;
-        }
+				case "attach": {
+					await interaction.deferReply();
+					try {
+						const channel = await guild?.channels.fetch(channelId);
+						if (channel && channel.type === ChannelType.GuildText) {
+							const sanitized = channel.name
+								.toLowerCase()
+								.replace(/[^a-z0-9-]/g, "-");
+							this.sessionManager.bindChannelToFolder(channel.id, sanitized);
+							const session = this.sessionManager.prepareSession(channel.id);
+							this.attachSessionListeners(session, channel as TextChannel);
+							await interaction.editReply(
+								`✅ Attached OpenCode session to \`#${channel.name}\` (Workspace: \`${sanitized}\`)`,
+							);
+						}
+					} catch {
+						await interaction.editReply("❌ Failed to attach session.");
+					}
+					break;
+				}
 
-        case 'peek-log': {
-          const session = this.sessionManager.getSession(channelId);
-          if (session) {
-            const stdout = existsSync(session.getStdoutPath())
-              ? readFileSync(session.getStdoutPath(), 'utf-8')
-              : '';
-            const stderr = existsSync(session.getStderrPath())
-              ? readFileSync(session.getStderrPath(), 'utf-8')
-              : '';
-            await interaction.reply({
-              content: `**Stdout:**\n\`\`\`\n${stdout.slice(-800)}\n\`\`\`\n**Stderr:**\n\`\`\`\n${stderr.slice(-800)}\n\`\`\``,
-              flags: [MessageFlags.Ephemeral],
-            });
-          }
-          break;
-        }
+				case "interrupt": {
+					const session = this.sessionManager.getSession(channelId);
+					if (session) {
+						this.sessionManager.removeSession(channelId, true);
+						this.channelBusy.delete(channelId);
+						await interaction.reply("Process killed.");
+					} else {
+						await interaction.reply({
+							content: "No active session.",
+							flags: [MessageFlags.Ephemeral],
+						});
+					}
+					break;
+				}
 
-        case 'restart': {
-          const session = this.sessionManager.getSession(channelId);
-          if (!session) {
-            await interaction.reply({
-              content: 'No session to restart.',
-              flags: [MessageFlags.Ephemeral],
-            });
-            return;
-          }
-          this.sessionManager.removeSession(channelId);
-          this.channelBusy.delete(channelId);
-          const newSession = this.sessionManager.prepareSession(channelId);
-          const chan = await this.client.channels.fetch(channelId);
-          if (chan && chan.type === ChannelType.GuildText) {
-            this.attachSessionListeners(newSession, chan as TextChannel);
-            await (chan as TextChannel).send(`🔄 **Session Restarted.**`);
-            this.channelBusy.add(channelId);
-            newSession.start().finally(() => this.channelBusy.delete(channelId));
-            await interaction.reply({ content: 'Restarting...', flags: [MessageFlags.Ephemeral] });
-          }
-          break;
-        }
+				case "peek-log": {
+					const session = this.sessionManager.getSession(channelId);
+					if (session) {
+						const stdout = existsSync(session.getStdoutPath())
+							? readFileSync(session.getStdoutPath(), "utf-8")
+							: "";
+						const stderr = existsSync(session.getStderrPath())
+							? readFileSync(session.getStderrPath(), "utf-8")
+							: "";
+						await interaction.reply({
+							content: `**Stdout:**\n\`\`\`\n${stdout.slice(-800)}\n\`\`\`\n**Stderr:**\n\`\`\`\n${stderr.slice(-800)}\n\`\`\``,
+							flags: [MessageFlags.Ephemeral],
+						});
+					}
+					break;
+				}
 
-        case 'resume': {
-          const sessionId = options.getString('session_id');
-          if (!sessionId) {
-            await interaction.reply({
-              content: 'Session ID required.',
-              flags: [MessageFlags.Ephemeral],
-            });
-            return;
-          }
-          await interaction.deferReply();
-          try {
-            this.sessionManager.removeSession(channelId);
-            const session = this.sessionManager.prepareSession(channelId, sessionId);
-            this.attachSessionListeners(session, interaction.channel as TextChannel);
-            await interaction.editReply(`Resumed \`${sessionId}\`.`);
-            this.channelBusy.add(channelId);
-            session.start().finally(() => this.channelBusy.delete(channelId));
-          } catch {
-            await interaction.editReply('Failed.');
-          }
-          break;
-        }
+				case "restart": {
+					const session = this.sessionManager.getSession(channelId);
+					if (!session) {
+						await interaction.reply({
+							content: "No session to restart.",
+							flags: [MessageFlags.Ephemeral],
+						});
+						return;
+					}
+					this.sessionManager.removeSession(channelId);
+					this.channelBusy.delete(channelId);
+					const newSession = this.sessionManager.prepareSession(channelId);
+					const chan = await this.client.channels.fetch(channelId);
+					if (chan && chan.type === ChannelType.GuildText) {
+						this.attachSessionListeners(newSession, chan as TextChannel);
+						await (chan as TextChannel).send(`🔄 **Session Restarted.**`);
+						this.channelBusy.add(channelId);
+						newSession
+							.start()
+							.finally(() => this.channelBusy.delete(channelId));
+						await interaction.reply({
+							content: "Restarting...",
+							flags: [MessageFlags.Ephemeral],
+						});
+					}
+					break;
+				}
 
-        case 'mode': {
-          const mode = options.getString('type');
-          if (!mode) {
-            const current = this.sessionManager.getMode(channelId);
-            await interaction.reply({
-              content: `Current mode: **${current}**`,
-              flags: [MessageFlags.Ephemeral],
-            });
-            return;
-          }
-          this.sessionManager.setMode(channelId, mode);
-          await interaction.reply(`🔄 Mode set to **${mode}**`);
-          break;
-        }
-      }
-    });
+				case "resume": {
+					const sessionId = options.getString("session_id");
+					if (!sessionId) {
+						await interaction.reply({
+							content: "Session ID required.",
+							flags: [MessageFlags.Ephemeral],
+						});
+						return;
+					}
+					await interaction.deferReply();
+					try {
+						this.sessionManager.removeSession(channelId);
+						const session = this.sessionManager.prepareSession(
+							channelId,
+							sessionId,
+						);
+						this.attachSessionListeners(
+							session,
+							interaction.channel as TextChannel,
+						);
+						await interaction.editReply(`Resumed \`${sessionId}\`.`);
+						this.channelBusy.add(channelId);
+						session.start().finally(() => this.channelBusy.delete(channelId));
+					} catch {
+						await interaction.editReply("Failed.");
+					}
+					break;
+				}
 
-    this.client.on(Events.MessageCreate, async (message: Message) => {
-      if (message.author.bot) return;
+				case "mode": {
+					const mode = options.getString("type");
+					if (!mode) {
+						const current = this.sessionManager.getMode(channelId);
+						await interaction.reply({
+							content: `Current mode: **${current}**`,
+							flags: [MessageFlags.Ephemeral],
+						});
+						return;
+					}
+					this.sessionManager.setMode(channelId, mode);
+					await interaction.reply(`🔄 Mode set to **${mode}**`);
+					break;
+				}
+			}
+		});
 
-      // Handle shortcuts: !plan, !build, !mode <type>
-      const content = message.content.trim();
-      let targetMode: string | null = null;
-      let prompt: string | null = null;
+		this.client.on(Events.MessageCreate, async (message: Message) => {
+			if (message.author.bot) return;
 
-      if (content.startsWith('!plan')) {
-        targetMode = 'plan';
-        prompt = content.slice(5).trim();
-      } else if (content.startsWith('!build')) {
-        targetMode = 'build';
-        prompt = content.slice(6).trim();
-      } else if (content.startsWith('!mode')) {
-        const parts = content.split(' ');
-        if (parts.length >= 2) {
-          targetMode = parts[1] || null;
-          prompt = parts.slice(2).join(' ').trim();
-        }
-      }
+			// Handle shortcuts: !plan, !build, !mode <type>
+			const content = message.content.trim();
+			let targetMode: string | null = null;
+			let prompt: string | null = null;
 
-      if (targetMode) {
-        this.sessionManager.setMode(message.channelId, targetMode);
-        await message.reply(`🔄 Mode set to **${targetMode}**`).catch(() => {});
-        if (!prompt) return; // Only switch mode if no prompt follows
-      }
+			if (content.startsWith("!plan")) {
+				targetMode = "plan";
+				prompt = content.slice(5).trim();
+			} else if (content.startsWith("!build")) {
+				targetMode = "build";
+				prompt = content.slice(6).trim();
+			} else if (content.startsWith("!mode")) {
+				const parts = content.split(" ");
+				if (parts.length >= 2) {
+					targetMode = parts[1] || null;
+					prompt = parts.slice(2).join(" ").trim();
+				}
+			}
 
-      const session = this.sessionManager.getSession(message.channelId);
-      if (session || targetMode) {
-        if (this.channelBusy.has(message.channelId)) {
-          await message.reply('⚠️ Busy...').catch(() => {});
-          return;
-        }
-        try {
-          await message.react('📥');
-          const sid = this.sessionManager.getChannelMapping().get(message.channelId);
-          const currentMode = this.sessionManager.getMode(message.channelId);
-          if (message.channel instanceof TextChannel) {
-            await message.channel.send(`**User [${currentMode}]:** ${prompt || message.content}`);
-          }
-          const fresh = this.sessionManager.prepareSession(message.channelId, sid);
-          this.attachSessionListeners(fresh, message.channel as TextChannel);
-          this.channelBusy.add(message.channelId);
-          fresh
-            .start(prompt || message.content)
-            .finally(() => this.channelBusy.delete(message.channelId));
-        } catch {
-          await message.react('❌');
-        }
-      }
-    });
-  }
+			if (targetMode) {
+				this.sessionManager.setMode(message.channelId, targetMode);
+				await message.reply(`🔄 Mode set to **${targetMode}**`).catch(() => {});
+				if (!prompt) return; // Only switch mode if no prompt follows
+			}
 
-  private async sendSplitMessage(channel: TextChannel, text: string) {
-    if (text.length <= this.CHUNK_SIZE) {
-      await channel.send(text).catch(() => {});
-      return;
-    }
+			const session = this.sessionManager.getSession(message.channelId);
+			if (session || targetMode) {
+				if (this.channelBusy.has(message.channelId)) {
+					await message.reply("⚠️ Busy...").catch(() => {});
+					return;
+				}
+				try {
+					await message.react("📥");
+					const sid = this.sessionManager
+						.getChannelMapping()
+						.get(message.channelId);
+					const currentMode = this.sessionManager.getMode(message.channelId);
+					if (message.channel instanceof TextChannel) {
+						await message.channel.send(
+							`**User [${currentMode}]:** ${prompt || message.content}`,
+						);
+					}
+					const fresh = this.sessionManager.prepareSession(
+						message.channelId,
+						sid,
+					);
+					this.attachSessionListeners(fresh, message.channel as TextChannel);
+					this.channelBusy.add(message.channelId);
+					fresh
+						.start(prompt || message.content)
+						.finally(() => this.channelBusy.delete(message.channelId));
+				} catch {
+					await message.react("❌");
+				}
+			}
+		});
+	}
 
-    const chunks: string[] = [];
-    for (let i = 0; i < text.length; i += this.CHUNK_SIZE) {
-      chunks.push(text.substring(i, i + this.CHUNK_SIZE));
-    }
+	private async sendSplitMessage(channel: TextChannel, text: string) {
+		if (text.length <= this.CHUNK_SIZE) {
+			await channel.send(text).catch(() => {});
+			return;
+		}
 
-    const total = Math.min(chunks.length, this.MAX_CHUNKS);
-    for (let i = 0; i < total; i++) {
-      const prefix = `[${i + 1}/${total}] `;
-      await channel.send(`${prefix}${chunks[i]}`).catch(() => {});
-    }
+		const chunks: string[] = [];
+		for (let i = 0; i < text.length; i += this.CHUNK_SIZE) {
+			chunks.push(text.substring(i, i + this.CHUNK_SIZE));
+		}
 
-    if (chunks.length > this.MAX_CHUNKS) {
-      await channel
-        .send(`... (truncated additional ${chunks.length - this.MAX_CHUNKS} parts)`)
-        .catch(() => {});
-    }
-  }
+		const total = Math.min(chunks.length, this.MAX_CHUNKS);
+		for (let i = 0; i < total; i++) {
+			const prefix = `[${i + 1}/${total}] `;
+			await channel.send(`${prefix}${chunks[i]}`).catch(() => {});
+		}
 
-  private attachSessionListeners(session: Agent, channel: TextChannel) {
-    let sessionIdDiscovered = false;
+		if (chunks.length > this.MAX_CHUNKS) {
+			await channel
+				.send(
+					`... (truncated additional ${chunks.length - this.MAX_CHUNKS} parts)`,
+				)
+				.catch(() => {});
+		}
+	}
 
-    const cleanupThinking = async (immediate = false) => {
-      this.lastToolUsed.delete(channel.id);
+	private attachSessionListeners(session: Agent, channel: TextChannel) {
+		let sessionIdDiscovered = false;
 
-      const performCleanup = async () => {
-        const interval = this.typingIntervals.get(channel.id);
-        if (interval) {
-          clearInterval(interval);
-          this.typingIntervals.delete(channel.id);
-        }
-        const hb = this.heartbeatTimers.get(channel.id);
-        if (hb) {
-          clearInterval(hb);
-          this.heartbeatTimers.delete(channel.id);
-        }
-        const msg = this.thinkingMessages.get(channel.id);
-        if (msg) {
-          await msg.delete().catch(() => {});
-          this.thinkingMessages.delete(channel.id);
-        }
-        this.thinkingStartTimes.delete(channel.id);
-        this.cleanupTimers.delete(channel.id);
-      };
+		const cleanupThinking = async (immediate = false) => {
+			this.lastToolUsed.delete(channel.id);
 
-      if (immediate) {
-        await performCleanup();
-      } else {
-        const timer = setTimeout(performCleanup, 2000);
-        this.cleanupTimers.set(channel.id, timer);
-      }
-    };
+			const performCleanup = async () => {
+				const interval = this.typingIntervals.get(channel.id);
+				if (interval) {
+					clearInterval(interval);
+					this.typingIntervals.delete(channel.id);
+				}
+				const hb = this.heartbeatTimers.get(channel.id);
+				if (hb) {
+					clearInterval(hb);
+					this.heartbeatTimers.delete(channel.id);
+				}
+				const msg = this.thinkingMessages.get(channel.id);
+				if (msg) {
+					await msg.delete().catch(() => {});
+					this.thinkingMessages.delete(channel.id);
+				}
+				this.thinkingStartTimes.delete(channel.id);
+				this.cleanupTimers.delete(channel.id);
+			};
 
-    session.on('event', (event: OpenCodeEvent) => {
-      const sid = event.sessionID || event.part?.sessionID;
-      if (sid && !sessionIdDiscovered) {
-        sessionIdDiscovered = true;
-        const alias = this.sessionManager.getAliasForSession(sid);
-        channel.send(`🆔 **Session:** \`${alias || sid.replace('ses_', '')}\``).catch(() => {});
-      }
+			if (immediate) {
+				await performCleanup();
+			} else {
+				const timer = setTimeout(performCleanup, 2000);
+				this.cleanupTimers.set(channel.id, timer);
+			}
+		};
 
-      if (event.type === 'error') {
-        const errorMsg =
-          event.error?.message || event.error?.data?.message || 'Internal Agent Error';
-        channel.send(`❌ **Agent Error:** ${errorMsg}`).catch(() => {});
-      }
+		session.on("event", (event: OpenCodeEvent) => {
+			const sid = event.sessionID || event.part?.sessionID;
+			if (sid && !sessionIdDiscovered) {
+				sessionIdDiscovered = true;
+				const alias = this.sessionManager.getAliasForSession(sid);
+				channel
+					.send(`🆔 **Session:** \`${alias || sid.replace("ses_", "")}\``)
+					.catch(() => {});
+			}
 
-      const toolName = event.part?.tool || event.tool;
-      if (toolName) {
-        this.lastToolUsed.set(channel.id, toolName);
-        if (event.part?.state?.status === 'failed') {
-          const error = event.part.state.error || 'Unknown tool error';
-          channel.send(`⚠️ **Tool Failed** (${toolName}): \`${error}\``).catch(() => {});
-        }
-      }
-    });
+			if (event.type === "error") {
+				const errorMsg =
+					event.error?.message ||
+					event.error?.data?.message ||
+					"Internal Agent Error";
+				channel.send(`❌ **Agent Error:** ${errorMsg}`).catch(() => {});
+			}
 
-    session.on('output', async (text: string) => {
-      // If output is over 9500 chars, trigger summarization loop (unless already summarizing)
-      if (text.length > this.MAX_TOTAL_LENGTH && !this.summarizingChannels.has(channel.id)) {
-        this.summarizingChannels.add(channel.id);
-        await cleanupThinking(true);
+			const toolName = event.part?.tool || event.tool;
+			if (toolName) {
+				this.lastToolUsed.set(channel.id, toolName);
+				if (event.part?.state?.status === "failed") {
+					const error = event.part.state.error || "Unknown tool error";
+					channel
+						.send(`⚠️ **Tool Failed** (${toolName}): \`${error}\``)
+						.catch(() => {});
+				}
+			}
+		});
 
-        const sid = this.sessionManager.getChannelMapping().get(channel.id);
-        const fresh = this.sessionManager.prepareSession(channel.id, sid);
-        this.attachSessionListeners(fresh, channel);
-        this.channelBusy.add(channel.id);
+		session.on("output", async (text: string) => {
+			// If output is over 9500 chars, trigger summarization loop (unless already summarizing)
+			if (
+				text.length > this.MAX_TOTAL_LENGTH &&
+				!this.summarizingChannels.has(channel.id)
+			) {
+				this.summarizingChannels.add(channel.id);
+				await cleanupThinking(true);
 
-        const prompt = `The previous output was too long and was suppressed. Please provide a summary of what you did and the final result under ${this.MAX_TOTAL_LENGTH} chars.`;
-        fresh.start(prompt).finally(() => {
-          this.channelBusy.delete(channel.id);
-          this.summarizingChannels.delete(channel.id);
-        });
-        return;
-      }
+				const sid = this.sessionManager.getChannelMapping().get(channel.id);
+				const fresh = this.sessionManager.prepareSession(channel.id, sid);
+				this.attachSessionListeners(fresh, channel);
+				this.channelBusy.add(channel.id);
 
-      await cleanupThinking();
-      await this.sendSplitMessage(channel, text);
-    });
+				const prompt = `The previous output was too long and was suppressed. Please provide a summary of what you did and the final result under ${this.MAX_TOTAL_LENGTH} chars.`;
+				fresh.start(prompt).finally(() => {
+					this.channelBusy.delete(channel.id);
+					this.summarizingChannels.delete(channel.id);
+				});
+				return;
+			}
 
-    session.on('thinking', async (isThinking: boolean) => {
-      if (isThinking) {
-        const pending = this.cleanupTimers.get(channel.id);
-        if (pending) {
-          clearTimeout(pending);
-          this.cleanupTimers.delete(channel.id);
-        }
+			await cleanupThinking();
+			await this.sendSplitMessage(channel, text);
+		});
 
-        if (!this.typingIntervals.has(channel.id)) {
-          channel.sendTyping().catch(() => {});
-          const interval = setInterval(() => channel.sendTyping().catch(() => {}), 5000);
-          this.typingIntervals.set(channel.id, interval);
-        }
+		session.on("thinking", async (isThinking: boolean) => {
+			if (isThinking) {
+				const pending = this.cleanupTimers.get(channel.id);
+				if (pending) {
+					clearTimeout(pending);
+					this.cleanupTimers.delete(channel.id);
+				}
 
-        if (!this.heartbeatTimers.has(channel.id)) {
-          this.thinkingStartTimes.set(channel.id, Date.now());
-          const heartbeat = setInterval(async () => {
-            const startTime = this.thinkingStartTimes.get(channel.id);
-            const elapsed = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
-            const isSummarizing = this.summarizingChannels.has(channel.id);
-            const tool = this.lastToolUsed.get(channel.id);
-            const mode = this.sessionManager.getMode(channel.id);
+				if (!this.typingIntervals.has(channel.id)) {
+					channel.sendTyping().catch(() => {});
+					const interval = setInterval(
+						() => channel.sendTyping().catch(() => {}),
+						5000,
+					);
+					this.typingIntervals.set(channel.id, interval);
+				}
 
-            let statusText = isSummarizing ? 'Summarizing' : `Thinking [${mode}]`;
-            if (tool) statusText += ` (Using ${tool})`;
+				if (!this.heartbeatTimers.has(channel.id)) {
+					this.thinkingStartTimes.set(channel.id, Date.now());
+					const heartbeat = setInterval(async () => {
+						const startTime = this.thinkingStartTimes.get(channel.id);
+						const elapsed = startTime
+							? Math.floor((Date.now() - startTime) / 1000)
+							: 0;
+						const isSummarizing = this.summarizingChannels.has(channel.id);
+						const tool = this.lastToolUsed.get(channel.id);
+						const mode = this.sessionManager.getMode(channel.id);
 
-            let msg = this.thinkingMessages.get(channel.id);
-            if (!msg) {
-              msg = await channel
-                .send(`⏳ *${statusText}... (${elapsed}s)*`)
-                .catch(() => undefined);
-              if (msg) this.thinkingMessages.set(channel.id, msg);
-            } else {
-              await msg.edit(`⏳ *${statusText}... (${elapsed}s)*`).catch(() => {});
-            }
-          }, 10000);
-          this.heartbeatTimers.set(channel.id, heartbeat);
-        }
-      } else {
-        const timer = setTimeout(cleanupThinking, 2000);
-        this.cleanupTimers.set(channel.id, timer);
-      }
-    });
+						let statusText = isSummarizing
+							? "Summarizing"
+							: `Thinking [${mode}]`;
+						if (tool) statusText += ` (Using ${tool})`;
 
-    session.on('idle', () => channel.send('✅').catch(() => {}));
-    session.on('error', (err) => {
-      cleanupThinking(true);
-      channel.send(`❌ ${err.message}`).catch(() => {});
-    });
-    session.on('exit', (code) => {
-      if (code !== 0 && code !== null) {
-        cleanupThinking(true);
-        channel.send(`⚠️ Exit ${code}`).catch(() => {});
-      }
-    });
-  }
+						let msg = this.thinkingMessages.get(channel.id);
+						if (!msg) {
+							msg = await channel
+								.send(`⏳ *${statusText}... (${elapsed}s)*`)
+								.catch(() => undefined);
+							if (msg) this.thinkingMessages.set(channel.id, msg);
+						} else {
+							await msg
+								.edit(`⏳ *${statusText}... (${elapsed}s)*`)
+								.catch(() => {});
+						}
+					}, 10000);
+					this.heartbeatTimers.set(channel.id, heartbeat);
+				}
+			} else {
+				const timer = setTimeout(cleanupThinking, 2000);
+				this.cleanupTimers.set(channel.id, timer);
+			}
+		});
 
-  async registerCommands() {
-    const commands = [
-      new SlashCommandBuilder().setName('ping').setDescription('Pong!'),
-      new SlashCommandBuilder()
-        .setName('setup')
-        .setDescription('Setup category')
-        .addChannelOption((o) =>
-          o
-            .setName('category')
-            .setDescription('Category')
-            .addChannelTypes(ChannelType.GuildCategory)
-            .setRequired(true),
-        ),
-      new SlashCommandBuilder()
-        .setName('new')
-        .setDescription('New session')
-        .addStringOption((o) => o.setName('name').setDescription('Channel Name').setRequired(true)),
-      new SlashCommandBuilder()
-        .setName('attach')
-        .setDescription('Attach OpenCode session to current channel'),
-      new SlashCommandBuilder().setName('interrupt').setDescription('Kill process'),
-      new SlashCommandBuilder().setName('peek-log').setDescription('Show logs'),
-      new SlashCommandBuilder().setName('restart').setDescription('Restart session'),
-      new SlashCommandBuilder()
-        .setName('resume')
-        .setDescription('Resume session')
-        .addStringOption((o) => o.setName('session_id').setDescription('ID').setRequired(true)),
-      new SlashCommandBuilder()
-        .setName('bind')
-        .setDescription('Bind folder')
-        .addStringOption((o) => o.setName('folder').setDescription('Folder').setRequired(true)),
-      new SlashCommandBuilder()
-        .setName('mode')
-        .setDescription('Switch or view agent mode')
-        .addStringOption((o) =>
-          o
-            .setName('type')
-            .setDescription('Mode (e.g., plan, build)')
-            .setRequired(false)
-            .addChoices({ name: 'plan', value: 'plan' }, { name: 'build', value: 'build' }),
-        ),
-    ].map((c) => c.toJSON());
+		session.on("idle", () => channel.send("✅").catch(() => {}));
+		session.on("error", (err) => {
+			cleanupThinking(true);
+			channel.send(`❌ ${err.message}`).catch(() => {});
+		});
+		session.on("exit", (code) => {
+			if (code !== 0 && code !== null) {
+				cleanupThinking(true);
+				channel.send(`⚠️ Exit ${code}`).catch(() => {});
+			}
+		});
+	}
 
-    const rest = new REST({ version: '10' }).setToken(this.config.discord.token);
-    try {
-      await rest.put(
-        Routes.applicationGuildCommands(this.config.discord.clientId, this.config.discord.guildId),
-        {
-          body: commands,
-        },
-      );
-      console.log('Reloaded (/) commands.');
-    } catch (error) {
-      console.error(error);
-    }
-  }
+	async registerCommands() {
+		const commands = [
+			new SlashCommandBuilder().setName("ping").setDescription("Pong!"),
+			new SlashCommandBuilder()
+				.setName("setup")
+				.setDescription("Setup category")
+				.addChannelOption((o) =>
+					o
+						.setName("category")
+						.setDescription("Category")
+						.addChannelTypes(ChannelType.GuildCategory)
+						.setRequired(true),
+				),
+			new SlashCommandBuilder()
+				.setName("new")
+				.setDescription("New session")
+				.addStringOption((o) =>
+					o.setName("name").setDescription("Channel Name").setRequired(true),
+				),
+			new SlashCommandBuilder()
+				.setName("attach")
+				.setDescription("Attach OpenCode session to current channel"),
+			new SlashCommandBuilder()
+				.setName("interrupt")
+				.setDescription("Kill process"),
+			new SlashCommandBuilder().setName("peek-log").setDescription("Show logs"),
+			new SlashCommandBuilder()
+				.setName("restart")
+				.setDescription("Restart session"),
+			new SlashCommandBuilder()
+				.setName("resume")
+				.setDescription("Resume session")
+				.addStringOption((o) =>
+					o.setName("session_id").setDescription("ID").setRequired(true),
+				),
+			new SlashCommandBuilder()
+				.setName("bind")
+				.setDescription("Bind folder")
+				.addStringOption((o) =>
+					o.setName("folder").setDescription("Folder").setRequired(true),
+				),
+			new SlashCommandBuilder()
+				.setName("mode")
+				.setDescription("Switch or view agent mode")
+				.addStringOption((o) =>
+					o
+						.setName("type")
+						.setDescription("Mode (e.g., plan, build)")
+						.setRequired(false)
+						.addChoices(
+							{ name: "plan", value: "plan" },
+							{ name: "build", value: "build" },
+						),
+				),
+		].map((c) => c.toJSON());
 
-  async login() {
-    await this.client.login(this.config.discord.token);
-    await this.recoverSessions();
-  }
+		const rest = new REST({ version: "10" }).setToken(
+			this.config.discord.token,
+		);
+		try {
+			await rest.put(
+				Routes.applicationGuildCommands(
+					this.config.discord.clientId,
+					this.config.discord.guildId,
+				),
+				{
+					body: commands,
+				},
+			);
+			console.log("Reloaded (/) commands.");
+		} catch (error) {
+			console.error(error);
+		}
+	}
 
-  private async recoverSessions() {
-    const mapping = this.sessionManager.getChannelMapping();
-    for (const [channelId, sessionId] of mapping.entries()) {
-      try {
-        if (!/^\d{17,20}$/.test(channelId)) {
-          this.sessionManager.removeSession(channelId);
-          continue;
-        }
-        const channel = await this.client.channels.fetch(channelId);
-        if (channel && channel.type === ChannelType.GuildText) {
-          const mode = this.sessionManager.getMode(channelId);
-          this.sessionManager.prepareSession(channelId, sessionId);
-          await (channel as TextChannel).send(`🔄 **Ready [${mode}].**`);
-        }
-      } catch {
-        /* ignore */
-      }
-    }
-  }
+	async login() {
+		await this.client.login(this.config.discord.token);
+		await this.recoverSessions();
+	}
 
-  getClient() {
-    return this.client;
-  }
-  getSessionManager() {
-    return this.sessionManager;
-  }
+	private async recoverSessions() {
+		const mapping = this.sessionManager.getChannelMapping();
+		for (const [channelId, sessionId] of mapping.entries()) {
+			try {
+				if (!/^\d{17,20}$/.test(channelId)) {
+					this.sessionManager.removeSession(channelId);
+					continue;
+				}
+				const channel = await this.client.channels.fetch(channelId);
+				if (channel && channel.type === ChannelType.GuildText) {
+					const mode = this.sessionManager.getMode(channelId);
+					this.sessionManager.prepareSession(channelId, sessionId);
+					await (channel as TextChannel).send(`🔄 **Ready [${mode}].**`);
+				}
+			} catch {
+				/* ignore */
+			}
+		}
+	}
+
+	getClient() {
+		return this.client;
+	}
+	getSessionManager() {
+		return this.sessionManager;
+	}
 }
